@@ -1,6 +1,3 @@
-//! Blinks the LED on a Pico board
-//!
-//! This will blink an LED attached to GP25, which is the pin the Pico uses for the on-board LED.
 #![no_std]
 #![no_main]
 
@@ -10,29 +7,25 @@ use defmt_rtt as _;
 use fugit::RateExtU32;
 use panic_probe as _;
 
-// Provide an alias for our BSP so we can switch targets quickly.
-// Uncomment the BSP you included in Cargo.toml, the rest of the code does not need to change.
 use rp_pico as bsp;
-// use sparkfun_pro_micro_rp2040 as bsp;
 
 use bsp::hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
 
 use display_interface_spi::SPIInterface;
-// use embedded_graphics::mono_font::MonoFont;
 use embedded_graphics::{
     mono_font::{ascii::FONT_8X13, MonoTextStyle},
     pixelcolor::Rgb565,
     prelude::*,
-    primitives::{Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Triangle},
+    primitives::{PrimitiveStyle, Rectangle},
     text::{Alignment, Text},
 };
-use embedded_hal::spi::MODE_0;
+use embedded_hal::{digital::OutputPin, spi::MODE_0};
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
 use ili9341::{DisplaySize240x320, Ili9341, Orientation};
 
 use bsp::hal::{
     gpio::{
-        bank0::{Gpio17, Gpio18, Gpio19, Gpio20, Gpio21},
+        bank0::{Gpio17, Gpio18, Gpio19, Gpio20, Gpio21, Gpio22},
         FunctionSioOutput, FunctionSpi, Pin, PullDown,
     },
     pac::SPI0,
@@ -53,6 +46,7 @@ type TFTSpiInterface = SPIInterface<TFTSpiDevice, Pin<Gpio20, FunctionSioOutput,
 
 pub struct TFT {
     display: Ili9341<TFTSpiInterface, Pin<Gpio21, FunctionSioOutput, PullDown>>,
+    backlight: Pin<Gpio22, FunctionSioOutput, PullDown>,
 }
 
 impl TFT {
@@ -63,14 +57,15 @@ impl TFT {
         mosi: Pin<Gpio19, FunctionSpi, PullDown>,
         dc: Pin<Gpio20, FunctionSioOutput, PullDown>,
         rst: Pin<Gpio21, FunctionSioOutput, PullDown>,
+        backlight: Pin<Gpio22, FunctionSioOutput, PullDown>,
         resets: &mut pac::RESETS,
         delay: &mut Timer,
     ) -> TFT {
         let spi_pin_layout = (mosi, sclk);
         let spi = Spi::<_, _, _, 8>::new(spi, spi_pin_layout).init(
             resets,
-            125_000_000u32.Hz(),
-            16_000_000u32.Hz(),
+            125u32.MHz(),
+            64000u32.kHz(),
             MODE_0,
         );
 
@@ -81,12 +76,20 @@ impl TFT {
             interface,
             rst,
             delay,
-            Orientation::Portrait,
+            Orientation::Landscape,
             DisplaySize240x320,
         )
         .unwrap();
 
-        TFT { display }
+        TFT { display, backlight }
+    }
+
+    pub fn backlight(&mut self, on: bool) {
+        if on {
+            self.backlight.set_high().unwrap();
+        } else {
+            self.backlight.set_low().unwrap();
+        }
     }
 
     pub fn clear(&mut self, color: Rgb565) {
@@ -112,7 +115,6 @@ impl TFT {
 fn main() -> ! {
     info!("Program start");
     let mut pac = pac::Peripherals::take().unwrap();
-    // let core = pac::CorePeripherals::take().unwrap();
     let mut watchdog = Watchdog::new(pac.WATCHDOG);
     let sio = Sio::new(pac.SIO);
 
@@ -130,8 +132,6 @@ fn main() -> ! {
     .ok()
     .unwrap();
 
-    // let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
-
     let pins = bsp::Pins::new(
         pac.IO_BANK0,
         pac.PADS_BANK0,
@@ -144,6 +144,7 @@ fn main() -> ! {
     let mosi = pins.gpio19.into_function::<FunctionSpi>();
     let dc = pins.gpio20.into_function::<FunctionSioOutput>();
     let rst = pins.gpio21.into_function::<FunctionSioOutput>();
+    let backlight = pins.gpio22.into_function::<FunctionSioOutput>();
 
     let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
     let mut tft = TFT::new(
@@ -153,9 +154,11 @@ fn main() -> ! {
         mosi,
         dc,
         rst,
+        backlight,
         &mut pac.RESETS,
         &mut timer,
     );
+    tft.backlight(true);
     tft.clear(Rgb565::WHITE);
     tft.println("Hello from RP2040", 100, 40);
 
