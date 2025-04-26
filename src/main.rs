@@ -1,15 +1,14 @@
 #![no_std]
 #![no_main]
 
-use bsp::entry;
 use defmt::*;
 use defmt_rtt as _;
 use fugit::RateExtU32;
 use panic_probe as _;
+use rp_pico::entry;
 
-use rp_pico as bsp;
-
-use bsp::hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
+use rp_pico::hal::gpio::bank0::{Gpio14, Gpio15, Gpio27};
+use rp_pico::hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
 
 use display_interface_spi::SPIInterface;
 use embedded_graphics::{
@@ -23,53 +22,48 @@ use embedded_hal::{digital::OutputPin, spi::MODE_0};
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
 use ili9341::{DisplaySize240x320, Ili9341, Orientation};
 
-use bsp::hal::{
-    gpio::{
-        bank0::{Gpio17, Gpio18, Gpio19, Gpio20, Gpio21, Gpio22},
-        FunctionSioOutput, FunctionSpi, Pin, PullDown,
-    },
-    pac::SPI0,
-    spi::{Enabled, Spi},
+use rp_pico::hal::{
+    gpio::{DynPinId, FunctionSioOutput, FunctionSpi, Pin, PinId, PullDown},
+    spi::{Enabled, Spi, SpiDevice, ValidPinIdSck, ValidPinIdTx},
     timer::Timer,
 };
 
-type TFTSpi = Spi<
+type TFTSpi<S, Tx, Sck> = Spi<
     Enabled,
-    SPI0,
+    S,
     (
-        Pin<Gpio19, FunctionSpi, PullDown>,
-        Pin<Gpio18, FunctionSpi, PullDown>,
+        Pin<Tx, FunctionSpi, PullDown>,
+        Pin<Sck, FunctionSpi, PullDown>,
     ),
 >;
-type TFTSpiDevice = ExclusiveDevice<TFTSpi, Pin<Gpio17, FunctionSioOutput, PullDown>, NoDelay>;
-type TFTSpiInterface = SPIInterface<TFTSpiDevice, Pin<Gpio20, FunctionSioOutput, PullDown>>;
+type TFTSpiDevice<S, Tx, Sck> =
+    ExclusiveDevice<TFTSpi<S, Tx, Sck>, Pin<DynPinId, FunctionSioOutput, PullDown>, NoDelay>;
+type TFTSpiInterface<S, Tx, Sck> =
+    SPIInterface<TFTSpiDevice<S, Tx, Sck>, Pin<DynPinId, FunctionSioOutput, PullDown>>;
 
-pub struct TFT {
-    display: Ili9341<TFTSpiInterface, Pin<Gpio21, FunctionSioOutput, PullDown>>,
-    backlight: Pin<Gpio22, FunctionSioOutput, PullDown>,
+pub struct TFT<S, Tx, Sck>
+where
+    S: SpiDevice,
+    Tx: PinId + ValidPinIdTx<S>,
+    Sck: PinId + ValidPinIdSck<S>,
+{
+    display: Ili9341<TFTSpiInterface<S, Tx, Sck>, Pin<DynPinId, FunctionSioOutput, PullDown>>,
+    backlight: Pin<DynPinId, FunctionSioOutput, PullDown>,
 }
 
-impl TFT {
+impl<S, Tx, Sck> TFT<S, Tx, Sck>
+where
+    S: SpiDevice,
+    Tx: PinId + ValidPinIdTx<S>,
+    Sck: PinId + ValidPinIdSck<S>,
+{
     pub fn new(
-        spi: pac::SPI0,
-        cs: Pin<Gpio17, FunctionSioOutput, PullDown>,
-        sclk: Pin<Gpio18, FunctionSpi, PullDown>,
-        mosi: Pin<Gpio19, FunctionSpi, PullDown>,
-        dc: Pin<Gpio20, FunctionSioOutput, PullDown>,
-        rst: Pin<Gpio21, FunctionSioOutput, PullDown>,
-        backlight: Pin<Gpio22, FunctionSioOutput, PullDown>,
-        resets: &mut pac::RESETS,
+        spi_device: TFTSpiDevice<S, Tx, Sck>,
+        dc: Pin<DynPinId, FunctionSioOutput, PullDown>,
+        rst: Pin<DynPinId, FunctionSioOutput, PullDown>,
+        backlight: Pin<DynPinId, FunctionSioOutput, PullDown>,
         delay: &mut Timer,
-    ) -> TFT {
-        let spi_pin_layout = (mosi, sclk);
-        let spi = Spi::<_, _, _, 8>::new(spi, spi_pin_layout).init(
-            resets,
-            125u32.MHz(),
-            64000u32.kHz(),
-            MODE_0,
-        );
-
-        let spi_device = ExclusiveDevice::new_no_delay(spi, cs).unwrap();
+    ) -> TFT<S, Tx, Sck> {
         let interface = SPIInterface::new(spi_device, dc);
 
         let display = Ili9341::new(
@@ -132,7 +126,7 @@ fn main() -> ! {
     .ok()
     .unwrap();
 
-    let pins = bsp::Pins::new(
+    let pins = rp_pico::Pins::new(
         pac.IO_BANK0,
         pac.PADS_BANK0,
         sio.gpio_bank0,
@@ -147,15 +141,22 @@ fn main() -> ! {
     let backlight = pins.gpio22.into_function::<FunctionSioOutput>();
 
     let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
-    let mut tft = TFT::new(
-        pac.SPI0,
-        cs,
-        sclk,
-        mosi,
-        dc,
-        rst,
-        backlight,
+
+    let spi_pin_layout = (mosi, sclk);
+    let spi = Spi::<_, _, _, 8>::new(pac.SPI0, spi_pin_layout).init(
         &mut pac.RESETS,
+        125u32.MHz(),
+        64000u32.kHz(),
+        MODE_0,
+    );
+
+    let spi_device = ExclusiveDevice::new_no_delay(spi, cs.into_dyn_pin()).unwrap();
+
+    let mut tft = TFT::<_, _, _>::new(
+        spi_device,
+        dc.into_dyn_pin(),
+        rst.into_dyn_pin(),
+        backlight.into_dyn_pin(),
         &mut timer,
     );
     tft.backlight(true);
