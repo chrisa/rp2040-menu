@@ -1,114 +1,27 @@
 #![no_std]
 #![no_main]
 
+
 use defmt::*;
 use defmt_rtt as _;
 use fugit::RateExtU32;
 use panic_probe as _;
 use rp_pico::entry;
 
+use embedded_hal::spi::MODE_0;
+use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
 use rp_pico::hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
 
-use display_interface_spi::SPIInterface;
-use embedded_graphics::{
-    mono_font::{ascii::FONT_8X13, MonoTextStyle},
-    pixelcolor::Rgb565,
-    prelude::*,
-    primitives::{PrimitiveStyle, Rectangle},
-    text::{Alignment, Text},
-};
-use embedded_hal::{digital::OutputPin, spi::MODE_0};
-use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
-use ili9341::{DisplaySize240x320, Ili9341, Orientation};
+use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
 
 use rp_pico::hal::{
-    gpio::{FunctionSioOutput, FunctionSpi, Pin, PinId, PullDown},
-    spi::{Enabled, Spi, SpiDevice, ValidPinIdSck, ValidPinIdTx},
+    gpio::{FunctionSioOutput, FunctionSpi, Pin, PullNone, PullUp},
+    spi::Spi,
     timer::Timer,
 };
 
-type TFTSpi<S, Tx, Sck> = Spi<
-    Enabled,
-    S,
-    (
-        Pin<Tx, FunctionSpi, PullDown>,
-        Pin<Sck, FunctionSpi, PullDown>,
-    ),
->;
-
-type TFTSpiDevice<S, Tx, Sck, Cs> = ExclusiveDevice<TFTSpi<S, Tx, Sck>, Cs, NoDelay>;
-
-type TFTSpiInterface<S, Tx, Sck, Cs, Dc> = SPIInterface<TFTSpiDevice<S, Tx, Sck, Cs>, Dc>;
-
-pub struct TFT<S, Tx, Sck, Cs, Dc, Rst, Bl>
-where
-    S: SpiDevice,
-    Tx: PinId + ValidPinIdTx<S>,
-    Sck: PinId + ValidPinIdSck<S>,
-    Cs: OutputPin,
-    Dc: OutputPin,
-{
-    display: Ili9341<TFTSpiInterface<S, Tx, Sck, Cs, Dc>, Rst>,
-    backlight: Bl,
-}
-
-impl<S, Tx, Sck, Cs, Dc, Rst, Bl> TFT<S, Tx, Sck, Cs, Dc, Rst, Bl>
-where
-    S: SpiDevice,
-    Tx: PinId + ValidPinIdTx<S>,
-    Sck: PinId + ValidPinIdSck<S>,
-    Cs: OutputPin,
-    Dc: OutputPin,
-    Rst: OutputPin,
-    Bl: OutputPin,
-{
-    pub fn new(
-        spi_device: TFTSpiDevice<S, Tx, Sck, Cs>,
-        dc: Dc,
-        rst: Rst,
-        backlight: Bl,
-        delay: &mut Timer,
-    ) -> TFT<S, Tx, Sck, Cs, Dc, Rst, Bl> {
-        let interface = SPIInterface::new(spi_device, dc);
-
-        let display = Ili9341::new(
-            interface,
-            rst,
-            delay,
-            Orientation::Landscape,
-            DisplaySize240x320,
-        )
-        .unwrap();
-
-        TFT { display, backlight }
-    }
-
-    pub fn backlight(&mut self, on: bool) {
-        if on {
-            self.backlight.set_high().unwrap();
-        } else {
-            self.backlight.set_low().unwrap();
-        }
-    }
-
-    pub fn clear(&mut self, color: Rgb565) {
-        self.display.clear(color).unwrap();
-    }
-
-    pub fn part_clear(&mut self, x: i32, y: i32, w: u32, h: u32) {
-        Rectangle::new(Point::new(x, y), Size::new(w, h))
-            .into_styled(PrimitiveStyle::with_fill(Rgb565::WHITE))
-            .draw(&mut self.display)
-            .unwrap();
-    }
-
-    pub fn println(&mut self, text: &str, x: i32, y: i32) {
-        let style = MonoTextStyle::new(&FONT_8X13, Rgb565::RED);
-        Text::with_alignment(text, Point::new(x, y), style, Alignment::Center)
-            .draw(&mut self.display)
-            .unwrap();
-    }
-}
+mod sd;
+mod tft;
 
 #[entry]
 fn main() -> ! {
@@ -138,28 +51,60 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
-    let cs = pins.gpio17.into_function::<FunctionSioOutput>();
-    let sclk = pins.gpio18.into_function::<FunctionSpi>();
-    let mosi = pins.gpio19.into_function::<FunctionSpi>();
-    let dc = pins.gpio20.into_function::<FunctionSioOutput>();
-    let rst = pins.gpio21.into_function::<FunctionSioOutput>();
-    let backlight = pins.gpio22.into_function::<FunctionSioOutput>();
-
     let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
+    let mut tft;
 
-    let spi_pin_layout = (mosi, sclk);
-    let spi = Spi::<_, _, _, 8>::new(pac.SPI0, spi_pin_layout).init(
-        &mut pac.RESETS,
-        125u32.MHz(),
-        64000u32.kHz(),
-        MODE_0,
-    );
+    {
+        let cs = pins.gpio17.into_function::<FunctionSioOutput>();
+        let sclk = pins.gpio18.into_function::<FunctionSpi>();
+        let mosi = pins.gpio19.into_function::<FunctionSpi>();
+        let dc = pins.gpio20.into_function::<FunctionSioOutput>();
+        let rst = pins.gpio21.into_function::<FunctionSioOutput>();
+        let backlight = pins.gpio22.into_function::<FunctionSioOutput>();
 
-    let spi_device = ExclusiveDevice::new(spi, cs, NoDelay).unwrap();
-    let mut tft = TFT::new(spi_device, dc, rst, backlight, &mut timer);
-    tft.backlight(true);
-    tft.clear(Rgb565::WHITE);
-    tft.println("Hello from RP2040", 100, 40);
+        let spi_pin_layout = (mosi, sclk);
+        let spi = Spi::<_, _, _, 8>::new(pac.SPI0, spi_pin_layout).init(
+            &mut pac.RESETS,
+            125u32.MHz(),
+            64000u32.kHz(),
+            MODE_0,
+        );
+
+        let spi_device =
+            ExclusiveDevice::new(spi, cs, NoDelay).expect("failed to create TFT SPI device");
+        tft = tft::TFT::new(spi_device, dc, rst, backlight, &mut timer);
+
+        tft.backlight(true);
+        tft.clear(Rgb565::WHITE);
+        tft.println("Hello from RP2040", 100, 40);
+    }
+
+    {
+        let cs = pins.gpio13.into_push_pull_output();
+        let sclk: Pin<_, FunctionSpi, PullNone> = pins.gpio10.reconfigure();
+        let mosi: Pin<_, FunctionSpi, PullNone> = pins.gpio11.reconfigure();
+        let miso: Pin<_, FunctionSpi, PullUp> = pins.gpio12.reconfigure();
+
+        let spi_pin_layout = (mosi, miso, sclk);
+
+        let spi = Spi::<_, _, _, 8>::new(pac.SPI1, spi_pin_layout).init(
+            &mut pac.RESETS,
+            125u32.MHz(),
+            400u32.kHz(),
+            MODE_0,
+        );
+
+        let spi_device =
+            ExclusiveDevice::new(spi, cs, NoDelay).expect("failed to create SD SPI dev");
+
+        let sd = sd::SpiSD::new(spi_device, timer);
+        let mut y = 60;
+        sd.iterate_root_dir(|entry| {
+            tft.println(core::str::from_utf8(entry.name.base_name()).unwrap(), 40, y);
+            y += 20;
+        })
+        .unwrap();
+    }
 
     loop {
         // your business logic
