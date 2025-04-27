@@ -31,7 +31,7 @@
                     // "svdFile": "./.vscode/rp2040.svd",
                 }
             ],
-            "consoleLogLevel": "Debug", //Error, Warn, Info, Debug, Trace
+            "consoleLogLevel": "Info", //Error, Warn, Info, Debug, Trace
             "wireProtocol": "Swd"
         }
     ]

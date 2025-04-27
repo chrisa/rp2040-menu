@@ -23,8 +23,10 @@ use rp2040_hal::{
     watchdog::Watchdog,
 };
 
+mod boot;
 mod sd;
 mod tft;
+mod uf2;
 
 #[link_section = ".boot2"]
 #[no_mangle]
@@ -104,18 +106,34 @@ fn main() -> ! {
         let spi_device =
             ExclusiveDevice::new(spi, cs, NoDelay).expect("failed to create SD SPI dev");
 
-        let sd = sd::SpiSD::new(spi_device, timer);
-        let mut y = 60;
-        sd.iterate_root_dir(|entry| {
-            tft.println(core::str::from_utf8(entry.name.base_name()).unwrap(), 40, y);
-            y += 20;
-        })
-        .unwrap();
+        let mut sd = sd::SpiSD::new(spi_device, timer);
+        // let mut y = 60;
+        // sd.iterate_root_dir(|entry| {
+        //     tft.println(core::str::from_utf8(entry.name.base_name()).unwrap(), 40, y);
+        //     y += 20;
+        // })
+        // .unwrap();
+
+        uf2::read_blocks(&mut sd, "ARCADE.UF2");
     }
 
-    loop {
-        // your business logic
-    }
+    // let boot2_data = {
+    //     unsafe { &*core::ptr::slice_from_raw_parts((0x1000_0000) as *const u8, 0x100 as usize) }
+    // };
+    // info!("{}", boot2_data);
+
+    // let prog_data = {
+    //     unsafe {
+    //         &*core::ptr::slice_from_raw_parts((0x1000_0000 + 0x0100) as *const u8, 0x100 as usize)
+    //     }
+    // };
+    // info!("{}", prog_data);
+
+    info!("about to boot");
+    // boot::boot(0x10000100u32);
+    info!("booted?");
+
+    loop {}
 }
 
 // End of file

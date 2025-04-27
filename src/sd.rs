@@ -2,10 +2,15 @@ use defmt::*;
 use embedded_hal::digital::OutputPin;
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
 use embedded_sdmmc::{
-    DirEntry, Error, SdCard, SdCardError, TimeSource, Timestamp, VolumeIdx, VolumeManager,
+    BlockDevice, DirEntry, Error, File, RawFile, SdCard, SdCardError, TimeSource, Timestamp,
+    VolumeIdx, VolumeManager,
 };
 use rp2040_hal::{
-    gpio::{FunctionSpi, Pin, PinId, PullNone, PullUp},
+    gpio::{
+        bank0::{Gpio10, Gpio11, Gpio12, Gpio13},
+        FunctionSioOutput, FunctionSpi, Pin, PinId, PullDown, PullNone, PullUp,
+    },
+    pac::SPI1,
     spi::{Enabled, Spi, SpiDevice, ValidPinIdRx, ValidPinIdSck, ValidPinIdTx},
     Timer,
 };
@@ -39,44 +44,32 @@ type SdSpi<S, Tx, Rx, Sck> = Spi<
 
 type SdSpiDevice<S, Tx, Rx, Sck, Cs> = ExclusiveDevice<SdSpi<S, Tx, Rx, Sck>, Cs, NoDelay>;
 
-pub struct SpiSD<S, Tx, Rx, Sck, Cs>
-where
-    S: SpiDevice,
-    Tx: PinId + ValidPinIdTx<S>,
-    Rx: PinId + ValidPinIdRx<S>,
-    Sck: PinId + ValidPinIdSck<S>,
-    Cs: OutputPin,
-{
-    sdcard: SdCard<SdSpiDevice<S, Tx, Rx, Sck, Cs>, Timer>,
-    timesource: Clock,
+type SdSpiDevice1 =
+    SdSpiDevice<SPI1, Gpio11, Gpio12, Gpio10, Pin<Gpio13, FunctionSioOutput, PullDown>>;
+
+pub type SdFile<'a> = File<'a, SdCard<SdSpiDevice1, Timer>, Clock, 4, 4, 1>;
+
+pub struct SpiSD {
+    volume_manager: VolumeManager<SdCard<SdSpiDevice1, Timer>, Clock, 4, 4, 1>,
 }
 
-impl<S, Tx, Rx, Sck, Cs> SpiSD<S, Tx, Rx, Sck, Cs>
-where
-    S: SpiDevice,
-    Tx: PinId + ValidPinIdTx<S>,
-    Rx: PinId + ValidPinIdRx<S>,
-    Sck: PinId + ValidPinIdSck<S>,
-    Cs: OutputPin,
-{
-    pub fn new(
-        spi_device: SdSpiDevice<S, Tx, Rx, Sck, Cs>,
-        delay: Timer,
-    ) -> SpiSD<S, Tx, Rx, Sck, Cs> {
+impl SpiSD {
+    pub fn new(spi_device: SdSpiDevice1, delay: Timer) -> SpiSD {
         let sdcard = SdCard::new(spi_device, delay);
-        SpiSD {
-            sdcard,
-            timesource: Clock {},
-        }
+        info!(
+            "Card size is {} bytes",
+            sdcard.num_bytes().expect("failed to read size of card")
+        );
+        let timesource = Clock {};
+        let volume_manager = VolumeManager::new(sdcard, timesource);
+        SpiSD { volume_manager }
     }
 
-    pub fn iterate_root_dir<F>(self, mut func: F) -> Result<(), Error<SdCardError>>
+    pub fn iterate_root_dir<F>(&mut self, mut func: F) -> Result<(), Error<SdCardError>>
     where
         F: FnMut(&DirEntry),
     {
-        info!("Card size is {} bytes", self.sdcard.num_bytes()?);
-        let mut volume_mgr = VolumeManager::new(self.sdcard, self.timesource);
-        let mut volume0 = volume_mgr.open_volume(VolumeIdx(0))?;
+        let mut volume0 = self.volume_manager.open_volume(VolumeIdx(0))?;
         info!("Volume 0: {:?}", volume0);
         let mut root_dir = volume0.open_root_dir()?;
         root_dir
@@ -85,6 +78,22 @@ where
                 func(entry);
             })
             .unwrap();
+        Ok(())
+    }
+
+    pub fn open<F>(&mut self, filename: &str, mut func: F) -> Result<(), Error<SdCardError>>
+    where
+        F: FnMut(&mut SdFile<'_>),
+    {
+        let mut volume0 = self
+            .volume_manager
+            .open_volume(VolumeIdx(0))
+            .expect("failed to open volume");
+        let mut root_dir = volume0.open_root_dir().expect("failed to open root dir");
+        let mut f = root_dir
+            .open_file_in_dir(filename, embedded_sdmmc::Mode::ReadOnly)
+            .expect("failed to open file");
+        func(&mut f);
         Ok(())
     }
 }

@@ -24,6 +24,8 @@ embedded-sdmmc = { version = "0.8.1", default-features = false, features = [
 
 rp2040-hal = { version = "0.11", features = ["rt", "critical-section-impl"] }
 rp2040-boot2 = { path = "../../Pico/rp2040-boot2" }
+uf2_block = "0.1.0"
+rp2040-flash = "0.6.0"
 
 # cargo build/run
 [profile.dev]
