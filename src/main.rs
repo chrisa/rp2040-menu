@@ -1,23 +1,26 @@
 #![no_std]
 #![no_main]
 
-
 use defmt::*;
 use defmt_rtt as _;
 use fugit::RateExtU32;
 use panic_probe as _;
+use rp_pico as bsp;
 use rp_pico::entry;
 
 use embedded_hal::spi::MODE_0;
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
-use rp_pico::hal::{clocks::init_clocks_and_plls, pac, sio::Sio, watchdog::Watchdog};
 
 use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
 
-use rp_pico::hal::{
+use bsp::hal::{
+    clocks::init_clocks_and_plls,
     gpio::{FunctionSioOutput, FunctionSpi, Pin, PullNone, PullUp},
+    pac,
+    sio::Sio,
     spi::Spi,
     timer::Timer,
+    watchdog::Watchdog,
 };
 
 mod sd;
