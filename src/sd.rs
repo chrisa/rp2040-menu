@@ -4,7 +4,7 @@ use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
 use embedded_sdmmc::{
     DirEntry, Error, SdCard, SdCardError, TimeSource, Timestamp, VolumeIdx, VolumeManager,
 };
-use rp_pico::hal::{
+use rp2040_hal::{
     gpio::{FunctionSpi, Pin, PinId, PullNone, PullUp},
     spi::{Enabled, Spi, SpiDevice, ValidPinIdRx, ValidPinIdSck, ValidPinIdTx},
     Timer,

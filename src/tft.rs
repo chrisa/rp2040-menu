@@ -13,7 +13,7 @@ use embedded_hal::digital::OutputPin;
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
 use ili9341::{DisplaySize240x320, Ili9341, Orientation};
 
-use rp_pico::hal::{
+use rp2040_hal::{
     gpio::{FunctionSpi, Pin, PinId, PullDown},
     spi::{Enabled, Spi, SpiDevice, ValidPinIdSck, ValidPinIdTx},
     timer::Timer,

@@ -5,15 +5,15 @@ use defmt::*;
 use defmt_rtt as _;
 use fugit::RateExtU32;
 use panic_probe as _;
-use rp_pico as bsp;
-use rp_pico::entry;
+use rp2040_boot2::BOOT_LOADER_W25Q080_TOP64K;
+use rp2040_hal::entry;
 
 use embedded_hal::spi::MODE_0;
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
 
 use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
 
-use bsp::hal::{
+use rp2040_hal::{
     clocks::init_clocks_and_plls,
     gpio::{FunctionSioOutput, FunctionSpi, Pin, PullNone, PullUp},
     pac,
@@ -25,6 +25,10 @@ use bsp::hal::{
 
 mod sd;
 mod tft;
+
+#[link_section = ".boot2"]
+#[no_mangle]
+pub static BOOT2_FIRMWARE: [u8; 256] = BOOT_LOADER_W25Q080_TOP64K;
 
 #[entry]
 fn main() -> ! {
@@ -47,7 +51,7 @@ fn main() -> ! {
     .ok()
     .unwrap();
 
-    let pins = rp_pico::Pins::new(
+    let pins = rp2040_hal::gpio::Pins::new(
         pac.IO_BANK0,
         pac.PADS_BANK0,
         sio.gpio_bank0,
