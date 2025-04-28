@@ -123,56 +123,9 @@ fn main() -> ! {
         // })
         // .unwrap();
 
-        let boot2_data =
-            { unsafe { &*core::ptr::slice_from_raw_parts((0x1000_0000) as *const u8, 256_usize) } };
-        info!("{}", &boot2_data);
-        info!("{}", &BOOT2_FIRMWARE);
-
-        let mut base_addr = 0;
-        let mut flash_data: [u8; 4096] = [0; 4096];
+        let mut fw = flash::FlashWriter::new();
         uf2::read_blocks(&mut sd, "ARCADE.UF2", |block| {
-            if base_addr == 0 {
-                base_addr = block.target_address;
-            }
-            if block.target_address < base_addr {
-                core::panic!("target address went backwards");
-            }
-            let offset: usize = (block.target_address - base_addr)
-                .try_into()
-                .expect("target_address was > usize");
-            let block_size: usize = block
-                .payload_size
-                .try_into()
-                .expect("payload_size was > usize");
-
-            info!(
-                "block number {}, target 0x{:x}, size: {}, offset {}",
-                block.block_number, block.target_address, block.payload_size, offset
-            );
-
-            if offset < 4096 {
-                // Preserve our boot2, ignoring the one from the UF2.
-                if block.target_address == 0x1000_0000 {
-                    flash_data[offset..(offset + block_size)].copy_from_slice(&boot2_data[0..256]);
-                    info!("{}", &block.data[0..256]);
-                } else {
-                    flash_data[offset..(offset + block_size)]
-                        .copy_from_slice(&block.data[0..block_size]);
-                }
-            } else {
-                info!("writing block at 0x{:x}", base_addr);
-                if base_addr == 0x10000000 {
-                    let mut x = 0;
-                    while x < 4096 {
-                        info!("{}", &flash_data[x..(x + 256)]);
-                        x += 256;
-                    }
-                }
-                flash::write_block(base_addr, &flash_data);
-
-                flash_data[0..block_size].copy_from_slice(&block.data[0..block_size]);
-                base_addr = block.target_address;
-            }
+            fw.next_block(block);
         });
     }
 
