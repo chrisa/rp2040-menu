@@ -32,7 +32,7 @@
                 }
             ],
             "consoleLogLevel": "Info", //Error, Warn, Info, Debug, Trace
-            "wireProtocol": "Swd"
+            "wireProtocol": "Swd",
         }
     ]
 }
