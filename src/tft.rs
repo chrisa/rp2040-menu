@@ -19,7 +19,7 @@ use rp2040_hal::{
     timer::Timer,
 };
 
-type TFTSpi<S, Tx, Sck> = Spi<
+type TftSpi<S, Tx, Sck> = Spi<
     Enabled,
     S,
     (
@@ -28,11 +28,11 @@ type TFTSpi<S, Tx, Sck> = Spi<
     ),
 >;
 
-type TFTSpiDevice<S, Tx, Sck, Cs> = ExclusiveDevice<TFTSpi<S, Tx, Sck>, Cs, NoDelay>;
+type TftSpiDevice<S, Tx, Sck, Cs> = ExclusiveDevice<TftSpi<S, Tx, Sck>, Cs, NoDelay>;
 
-type TFTSpiInterface<S, Tx, Sck, Cs, Dc> = SPIInterface<TFTSpiDevice<S, Tx, Sck, Cs>, Dc>;
+type TftSpiInterface<S, Tx, Sck, Cs, Dc> = SPIInterface<TftSpiDevice<S, Tx, Sck, Cs>, Dc>;
 
-pub struct TFT<S, Tx, Sck, Cs, Dc, Rst, Bl>
+pub struct Tft<S, Tx, Sck, Cs, Dc, Rst, Bl>
 where
     S: SpiDevice,
     Tx: PinId + ValidPinIdTx<S>,
@@ -40,11 +40,11 @@ where
     Cs: OutputPin,
     Dc: OutputPin,
 {
-    display: Ili9341<TFTSpiInterface<S, Tx, Sck, Cs, Dc>, Rst>,
+    display: Ili9341<TftSpiInterface<S, Tx, Sck, Cs, Dc>, Rst>,
     backlight: Bl,
 }
 
-impl<S, Tx, Sck, Cs, Dc, Rst, Bl> TFT<S, Tx, Sck, Cs, Dc, Rst, Bl>
+impl<S, Tx, Sck, Cs, Dc, Rst, Bl> Tft<S, Tx, Sck, Cs, Dc, Rst, Bl>
 where
     S: SpiDevice,
     Tx: PinId + ValidPinIdTx<S>,
@@ -55,12 +55,12 @@ where
     Bl: OutputPin,
 {
     pub fn new(
-        spi_device: TFTSpiDevice<S, Tx, Sck, Cs>,
+        spi_device: TftSpiDevice<S, Tx, Sck, Cs>,
         dc: Dc,
         rst: Rst,
         backlight: Bl,
         delay: &mut Timer,
-    ) -> TFT<S, Tx, Sck, Cs, Dc, Rst, Bl> {
+    ) -> Tft<S, Tx, Sck, Cs, Dc, Rst, Bl> {
         let interface = SPIInterface::new(spi_device, dc);
 
         let display = Ili9341::new(
@@ -72,7 +72,7 @@ where
         )
         .unwrap();
 
-        TFT { display, backlight }
+        Tft { display, backlight }
     }
 
     pub fn backlight(&mut self, on: bool) {

@@ -1,4 +1,3 @@
-use defmt::info;
 use uf2_block::Block;
 
 const UF2_BLOCK_LENGTH: usize = 512;
@@ -14,7 +13,6 @@ where
             let mut buf: [u8; UF2_BLOCK_LENGTH] = [0; UF2_BLOCK_LENGTH];
             file.read(&mut buf).expect("failed to read");
             let block = Block::parse(&buf).expect("failed to parse");
-            // info!("{}", defmt::Display2Format(&block));
             func(&block);
         }
     })

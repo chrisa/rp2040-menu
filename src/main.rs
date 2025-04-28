@@ -33,6 +33,8 @@ mod uf2;
 #[no_mangle]
 pub static BOOT2_FIRMWARE: [u8; 256] = BOOT_LOADER_W25Q080_TOP64K;
 
+const XIP_BASE: u32 = 0x10000000;
+
 #[entry]
 fn main() -> ! {
     info!("Program start");
@@ -81,8 +83,8 @@ fn main() -> ! {
         );
 
         let spi_device =
-            ExclusiveDevice::new(spi, cs, NoDelay).expect("failed to create TFT SPI device");
-        tft = tft::TFT::new(spi_device, dc, rst, backlight, &mut timer);
+            ExclusiveDevice::new(spi, cs, NoDelay).expect("failed to create Tft SPI device");
+        tft = tft::Tft::new(spi_device, dc, rst, backlight, &mut timer);
 
         tft.backlight(true);
         tft.clear(Rgb565::WHITE);
@@ -110,7 +112,7 @@ fn main() -> ! {
         let mut sd = sd::SpiSD::new(spi_device, timer);
         // let mut y = 60;
         // sd.iterate_root_dir(|entry| {
-        //     tft.println(core::str::from_utf8(entry.name.base_name()).unwrap(), 40, y);
+        //     Tft.println(core::str::from_utf8(entry.name.base_name()).unwrap(), 40, y);
         //     y += 20;
         // })
         // .unwrap();
@@ -169,9 +171,5 @@ fn main() -> ! {
     }
 
     tft.println("Booting", 120, 60);
-
-    info!("about to boot");
-    boot::boot(0x10000100u32);
+    boot::boot(XIP_BASE + 0x100);
 }
-
-// End of file

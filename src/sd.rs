@@ -1,17 +1,15 @@
 use defmt::*;
-use embedded_hal::digital::OutputPin;
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
 use embedded_sdmmc::{
-    BlockDevice, DirEntry, Error, File, RawFile, SdCard, SdCardError, TimeSource, Timestamp,
-    VolumeIdx, VolumeManager,
+    DirEntry, Error, File, SdCard, SdCardError, TimeSource, Timestamp, VolumeIdx, VolumeManager,
 };
 use rp2040_hal::{
     gpio::{
         bank0::{Gpio10, Gpio11, Gpio12, Gpio13},
-        FunctionSioOutput, FunctionSpi, Pin, PinId, PullDown, PullNone, PullUp,
+        FunctionSioOutput, FunctionSpi, Pin, PullDown, PullNone, PullUp,
     },
     pac::SPI1,
-    spi::{Enabled, Spi, SpiDevice, ValidPinIdRx, ValidPinIdSck, ValidPinIdTx},
+    spi::{Enabled, Spi},
     Timer,
 };
 
@@ -42,19 +40,21 @@ type SdSpi<S, Tx, Rx, Sck> = Spi<
     ),
 >;
 
-type SdSpiDevice<S, Tx, Rx, Sck, Cs> = ExclusiveDevice<SdSpi<S, Tx, Rx, Sck>, Cs, NoDelay>;
+type SdSpiDeviceAny<S, Tx, Rx, Sck, Cs> = ExclusiveDevice<SdSpi<S, Tx, Rx, Sck>, Cs, NoDelay>;
 
 type SdSpiDevice1 =
-    SdSpiDevice<SPI1, Gpio11, Gpio12, Gpio10, Pin<Gpio13, FunctionSioOutput, PullDown>>;
+    SdSpiDeviceAny<SPI1, Gpio11, Gpio12, Gpio10, Pin<Gpio13, FunctionSioOutput, PullDown>>;
 
-pub type SdFile<'a> = File<'a, SdCard<SdSpiDevice1, Timer>, Clock, 4, 4, 1>;
+type SdSpiDevice = SdSpiDevice1;
+
+pub type SdFile<'a> = File<'a, SdCard<SdSpiDevice, Timer>, Clock, 4, 4, 1>;
 
 pub struct SpiSD {
-    volume_manager: VolumeManager<SdCard<SdSpiDevice1, Timer>, Clock, 4, 4, 1>,
+    volume_manager: VolumeManager<SdCard<SdSpiDevice, Timer>, Clock, 4, 4, 1>,
 }
 
 impl SpiSD {
-    pub fn new(spi_device: SdSpiDevice1, delay: Timer) -> SpiSD {
+    pub fn new(spi_device: SdSpiDevice, delay: Timer) -> SpiSD {
         let sdcard = SdCard::new(spi_device, delay);
         info!(
             "Card size is {} bytes",
