@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use config::CONFIG_ILI9341;
 use defmt::*;
 use defmt_rtt as _;
 use fugit::RateExtU32;
@@ -24,6 +25,7 @@ use rp2040_hal::{
 };
 
 mod boot;
+mod config;
 mod flash;
 mod sd;
 mod tft;
@@ -32,6 +34,10 @@ mod uf2;
 #[link_section = ".boot2"]
 #[no_mangle]
 pub static BOOT2_FIRMWARE: [u8; 256] = BOOT_LOADER_W25Q080_TOP64K;
+
+#[link_section = ".config"]
+#[no_mangle]
+pub static CONFIG: [u8; 256] = CONFIG_ILI9341;
 
 const XIP_BASE: u32 = 0x10000000;
 
