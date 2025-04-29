@@ -1,14 +1,16 @@
 use defmt::*;
+use embedded_hal::spi::MODE_0;
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
 use embedded_sdmmc::{
     DirEntry, Error, File, SdCard, SdCardError, TimeSource, Timestamp, VolumeIdx, VolumeManager,
 };
+use fugit::RateExtU32;
 use rp2040_hal::{
     gpio::{
         bank0::{Gpio10, Gpio11, Gpio12, Gpio13},
-        FunctionSioOutput, FunctionSpi, Pin, PullDown, PullNone, PullUp,
+        FunctionSioOutput, FunctionSpi, Pin, Pins, PullDown, PullNone, PullUp,
     },
-    pac::SPI1,
+    pac::{self, SPI1},
     spi::{Enabled, Spi},
     Timer,
 };
@@ -42,7 +44,7 @@ type SdSpi<S, Tx, Rx, Sck> = Spi<
 
 type SdSpiDeviceAny<S, Tx, Rx, Sck, Cs> = ExclusiveDevice<SdSpi<S, Tx, Rx, Sck>, Cs, NoDelay>;
 
-type SdSpiDevice1 =
+pub type SdSpiDevice1 =
     SdSpiDeviceAny<SPI1, Gpio11, Gpio12, Gpio10, Pin<Gpio13, FunctionSioOutput, PullDown>>;
 
 type SdSpiDevice = SdSpiDevice1;
@@ -54,6 +56,29 @@ pub struct SpiSD {
 }
 
 impl SpiSD {
+    pub fn on_spi1(
+        resets: &mut rp2040_hal::pac::RESETS,
+        spi: pac::SPI1,
+        timer: rp2040_hal::Timer,
+        mosi: Pin<Gpio11, FunctionSpi, PullNone>,
+        miso: Pin<Gpio12, FunctionSpi, PullUp>,
+        sclk: Pin<Gpio10, FunctionSpi, PullNone>,
+        cs: Pin<Gpio13, FunctionSioOutput, PullDown>,
+    ) -> SpiSD {
+        let spi_pin_layout = (mosi, miso, sclk);
+
+        let spi = Spi::<_, _, _, 8>::new(spi, spi_pin_layout).init(
+            resets,
+            125u32.MHz(),
+            400u32.kHz(),
+            MODE_0,
+        );
+
+        let spi_device =
+            ExclusiveDevice::new(spi, cs, NoDelay).expect("failed to create SD SPI dev");
+        Self::new(spi_device, timer)
+    }
+
     pub fn new(spi_device: SdSpiDevice, delay: Timer) -> SpiSD {
         let sdcard = SdCard::new(spi_device, delay);
         info!(

@@ -1,4 +1,5 @@
 use defmt_rtt as _;
+use fugit::RateExtU32;
 use panic_probe as _;
 
 use display_interface_spi::SPIInterface;
@@ -11,10 +12,14 @@ use embedded_graphics::{
 };
 use embedded_hal::digital::OutputPin;
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
-use ili9341::{DisplaySize240x320, Ili9341, Orientation};
+use ili9341::{DisplaySize240x320, Ili9341, Orientation, SPI_MODE};
 
 use rp2040_hal::{
-    gpio::{FunctionSpi, Pin, PinId, PullDown},
+    gpio::{
+        bank0::{Gpio17, Gpio18, Gpio19, Gpio20, Gpio21, Gpio22},
+        FunctionSioOutput, FunctionSpi, Pin, PinId, PullDown,
+    },
+    pac::{self, SPI0},
     spi::{Enabled, Spi, SpiDevice, ValidPinIdSck, ValidPinIdTx},
     timer::Timer,
 };
@@ -44,6 +49,16 @@ where
     backlight: Bl,
 }
 
+pub type Tft0 = Tft<
+    SPI0,
+    Gpio19,
+    Gpio18,
+    Pin<Gpio17, FunctionSioOutput, PullDown>,
+    Pin<Gpio20, FunctionSioOutput, PullDown>,
+    Pin<Gpio21, FunctionSioOutput, PullDown>,
+    Pin<Gpio22, FunctionSioOutput, PullDown>,
+>;
+
 impl<S, Tx, Sck, Cs, Dc, Rst, Bl> Tft<S, Tx, Sck, Cs, Dc, Rst, Bl>
 where
     S: SpiDevice,
@@ -54,6 +69,32 @@ where
     Rst: OutputPin,
     Bl: OutputPin,
 {
+    pub fn on_spi0(
+        resets: &mut rp2040_hal::pac::RESETS,
+        spi: pac::SPI0,
+        mut timer: rp2040_hal::timer::Timer,
+        mosi: Pin<Gpio19, FunctionSpi, PullDown>,
+        sclk: Pin<Gpio18, FunctionSpi, PullDown>,
+        cs: Pin<Gpio17, FunctionSioOutput, PullDown>,
+        dc: Pin<Gpio20, FunctionSioOutput, PullDown>,
+        rst: Pin<Gpio21, FunctionSioOutput, PullDown>,
+        backlight: Pin<Gpio22, FunctionSioOutput, PullDown>,
+    ) -> Tft0 {
+        let spi_pin_layout = (mosi, sclk);
+        let spi = Spi::<_, _, _, 8>::new(spi, spi_pin_layout).init(
+            resets,
+            125u32.MHz(),
+            64000u32.kHz(),
+            SPI_MODE,
+        );
+
+        let spi_device =
+            ExclusiveDevice::new(spi, cs, NoDelay).expect("failed to create Tft SPI device");
+        let mut tft = Tft::new(spi_device, dc, rst, backlight, &mut timer);
+        tft.backlight(true);
+        tft
+    }
+
     pub fn new(
         spi_device: TftSpiDevice<S, Tx, Sck, Cs>,
         dc: Dc,

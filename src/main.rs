@@ -1,28 +1,22 @@
 #![no_std]
 #![no_main]
 
-use config::CONFIG_ILI9341;
 use defmt::*;
 use defmt_rtt as _;
-use fugit::RateExtU32;
 use panic_probe as _;
+
 use rp2040_boot2::BOOT_LOADER_W25Q080_TOP64K;
-use rp2040_hal::entry;
-
-use embedded_hal::spi::MODE_0;
-use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
-
-use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
-
 use rp2040_hal::{
     clocks::init_clocks_and_plls,
-    gpio::{FunctionSioOutput, FunctionSpi, Pin, PullNone, PullUp},
+    entry,
+    gpio::{FunctionSioOutput, FunctionSpi},
     pac,
     sio::Sio,
-    spi::Spi,
     timer::Timer,
     watchdog::Watchdog,
 };
+
+use config::CONFIG_ILI9341;
 
 mod boot;
 mod config;
@@ -30,6 +24,7 @@ mod flash;
 mod sd;
 mod tft;
 mod uf2;
+mod ui;
 
 #[link_section = ".boot2"]
 #[no_mangle]
@@ -69,66 +64,45 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
-    let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
-    let mut tft;
+    let timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
 
-    {
-        let cs = pins.gpio17.into_function::<FunctionSioOutput>();
-        let sclk = pins.gpio18.into_function::<FunctionSpi>();
-        let mosi = pins.gpio19.into_function::<FunctionSpi>();
-        let dc = pins.gpio20.into_function::<FunctionSioOutput>();
-        let rst = pins.gpio21.into_function::<FunctionSioOutput>();
-        let backlight = pins.gpio22.into_function::<FunctionSioOutput>();
+    let tft = tft::Tft0::on_spi0(
+        &mut pac.RESETS,
+        pac.SPI0,
+        timer.clone(),
+        pins.gpio19.into_function::<FunctionSpi>(),
+        pins.gpio18.into_function::<FunctionSpi>(),
+        pins.gpio17.into_function::<FunctionSioOutput>(),
+        pins.gpio20.into_function::<FunctionSioOutput>(),
+        pins.gpio21.into_function::<FunctionSioOutput>(),
+        pins.gpio22.into_function::<FunctionSioOutput>(),
+    );
 
-        let spi_pin_layout = (mosi, sclk);
-        let spi = Spi::<_, _, _, 8>::new(pac.SPI0, spi_pin_layout).init(
-            &mut pac.RESETS,
-            125u32.MHz(),
-            64000u32.kHz(),
-            MODE_0,
-        );
+    let mut sd = sd::SpiSD::on_spi1(
+        &mut pac.RESETS,
+        pac.SPI1,
+        timer.clone(),
+        pins.gpio11.reconfigure(),
+        pins.gpio12.reconfigure(),
+        pins.gpio10.reconfigure(),
+        pins.gpio13.into_push_pull_output(),
+    );
 
-        let spi_device =
-            ExclusiveDevice::new(spi, cs, NoDelay).expect("failed to create Tft SPI device");
-        tft = tft::Tft::new(spi_device, dc, rst, backlight, &mut timer);
+    // let mut y = 60;
+    // sd.iterate_root_dir(|entry| {
+    //     Tft.println(core::str::from_utf8(entry.name.base_name()).unwrap(), 40, y);
+    //     y += 20;
+    // })
+    // .unwrap();
 
-        tft.backlight(true);
-        tft.clear(Rgb565::WHITE);
-        tft.println("Hello from RP2040", 100, 40);
-    }
+    // Set up UI
+    let mut ui = ui::UI::new(tft);
+    ui.init();
 
-    {
-        let cs = pins.gpio13.into_push_pull_output();
-        let sclk: Pin<_, FunctionSpi, PullNone> = pins.gpio10.reconfigure();
-        let mosi: Pin<_, FunctionSpi, PullNone> = pins.gpio11.reconfigure();
-        let miso: Pin<_, FunctionSpi, PullUp> = pins.gpio12.reconfigure();
+    let mut fw = flash::FlashWriter::new();
+    uf2::read_blocks(&mut sd, "ARCADE.UF2", |block| {
+        fw.next_block(block);
+    });
 
-        let spi_pin_layout = (mosi, miso, sclk);
-
-        let spi = Spi::<_, _, _, 8>::new(pac.SPI1, spi_pin_layout).init(
-            &mut pac.RESETS,
-            125u32.MHz(),
-            400u32.kHz(),
-            MODE_0,
-        );
-
-        let spi_device =
-            ExclusiveDevice::new(spi, cs, NoDelay).expect("failed to create SD SPI dev");
-
-        let mut sd = sd::SpiSD::new(spi_device, timer);
-        // let mut y = 60;
-        // sd.iterate_root_dir(|entry| {
-        //     Tft.println(core::str::from_utf8(entry.name.base_name()).unwrap(), 40, y);
-        //     y += 20;
-        // })
-        // .unwrap();
-
-        let mut fw = flash::FlashWriter::new();
-        uf2::read_blocks(&mut sd, "ARCADE.UF2", |block| {
-            fw.next_block(block);
-        });
-    }
-
-    tft.println("Booting", 120, 60);
     boot::boot(XIP_BASE + 0x100);
 }
