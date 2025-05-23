@@ -8,7 +8,7 @@ use fugit::RateExtU32;
 use rp2040_hal::{
     gpio::{
         bank0::{Gpio10, Gpio11, Gpio12, Gpio13},
-        FunctionSioOutput, FunctionSpi, Pin, Pins, PullDown, PullNone, PullUp,
+        FunctionSioOutput, FunctionSpi, Pin, PullDown, PullNone, PullUp,
     },
     pac::{self, SPI1},
     spi::{Enabled, Spi},
@@ -32,31 +32,28 @@ impl TimeSource for Clock {
     }
 }
 
-type SdSpi<S, Tx, Rx, Sck> = Spi<
-    Enabled,
-    S,
-    (
-        Pin<Tx, FunctionSpi, PullNone>,
-        Pin<Rx, FunctionSpi, PullUp>,
-        Pin<Sck, FunctionSpi, PullNone>,
-    ),
+pub type SdSpiDevice = ExclusiveDevice<
+    Spi<
+        Enabled,
+        SPI1,
+        (
+            Pin<Gpio11, FunctionSpi, PullNone>,
+            Pin<Gpio12, FunctionSpi, PullUp>,
+            Pin<Gpio10, FunctionSpi, PullNone>,
+        ),
+    >,
+    Pin<Gpio13, rp2040_hal::gpio::FunctionSio<rp2040_hal::gpio::SioOutput>, PullDown>,
+    NoDelay,
 >;
-
-type SdSpiDeviceAny<S, Tx, Rx, Sck, Cs> = ExclusiveDevice<SdSpi<S, Tx, Rx, Sck>, Cs, NoDelay>;
-
-pub type SdSpiDevice1 =
-    SdSpiDeviceAny<SPI1, Gpio11, Gpio12, Gpio10, Pin<Gpio13, FunctionSioOutput, PullDown>>;
-
-type SdSpiDevice = SdSpiDevice1;
 
 pub type SdFile<'a> = File<'a, SdCard<SdSpiDevice, Timer>, Clock, 4, 4, 1>;
 
 pub struct SpiSD {
-    volume_manager: VolumeManager<SdCard<SdSpiDevice, Timer>, Clock, 4, 4, 1>,
+    volume_manager: VolumeManager<SdCard<SdSpiDevice, Timer>, Clock>,
 }
 
 impl SpiSD {
-    pub fn on_spi1(
+    pub fn new(
         resets: &mut rp2040_hal::pac::RESETS,
         spi: pac::SPI1,
         timer: rp2040_hal::Timer,
@@ -76,11 +73,8 @@ impl SpiSD {
 
         let spi_device =
             ExclusiveDevice::new(spi, cs, NoDelay).expect("failed to create SD SPI dev");
-        Self::new(spi_device, timer)
-    }
 
-    pub fn new(spi_device: SdSpiDevice, delay: Timer) -> SpiSD {
-        let sdcard = SdCard::new(spi_device, delay);
+        let sdcard = SdCard::new(spi_device, timer);
         info!(
             "Card size is {} bytes",
             sdcard.num_bytes().expect("failed to read size of card")

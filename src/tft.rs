@@ -17,59 +17,36 @@ use ili9341::{DisplaySize240x320, Ili9341, Orientation, SPI_MODE};
 use rp2040_hal::{
     gpio::{
         bank0::{Gpio17, Gpio18, Gpio19, Gpio20, Gpio21, Gpio22},
-        FunctionSioOutput, FunctionSpi, Pin, PinId, PullDown,
+        FunctionSioOutput, FunctionSpi, Pin, PullDown,
     },
     pac::{self, SPI0},
-    spi::{Enabled, Spi, SpiDevice, ValidPinIdSck, ValidPinIdTx},
-    timer::Timer,
+    spi::{Enabled, Spi},
 };
 
-type TftSpi<S, Tx, Sck> = Spi<
-    Enabled,
-    S,
-    (
-        Pin<Tx, FunctionSpi, PullDown>,
-        Pin<Sck, FunctionSpi, PullDown>,
-    ),
->;
-
-type TftSpiDevice<S, Tx, Sck, Cs> = ExclusiveDevice<TftSpi<S, Tx, Sck>, Cs, NoDelay>;
-
-type TftSpiInterface<S, Tx, Sck, Cs, Dc> = SPIInterface<TftSpiDevice<S, Tx, Sck, Cs>, Dc>;
-
-pub struct Tft<S, Tx, Sck, Cs, Dc, Rst, Bl>
-where
-    S: SpiDevice,
-    Tx: PinId + ValidPinIdTx<S>,
-    Sck: PinId + ValidPinIdSck<S>,
-    Cs: OutputPin,
-    Dc: OutputPin,
-{
-    display: Ili9341<TftSpiInterface<S, Tx, Sck, Cs, Dc>, Rst>,
-    backlight: Bl,
+pub struct Tft {
+    pub display: Ili9341<
+        SPIInterface<
+            ExclusiveDevice<
+                Spi<
+                    Enabled,
+                    SPI0,
+                    (
+                        Pin<Gpio19, FunctionSpi, PullDown>,
+                        Pin<Gpio18, FunctionSpi, PullDown>,
+                    ),
+                >,
+                Pin<Gpio17, rp2040_hal::gpio::FunctionSio<rp2040_hal::gpio::SioOutput>, PullDown>,
+                NoDelay,
+            >,
+            Pin<Gpio20, rp2040_hal::gpio::FunctionSio<rp2040_hal::gpio::SioOutput>, PullDown>,
+        >,
+        Pin<Gpio21, rp2040_hal::gpio::FunctionSio<rp2040_hal::gpio::SioOutput>, PullDown>,
+    >,
+    backlight: Pin<Gpio22, FunctionSioOutput, PullDown>,
 }
 
-pub type Tft0 = Tft<
-    SPI0,
-    Gpio19,
-    Gpio18,
-    Pin<Gpio17, FunctionSioOutput, PullDown>,
-    Pin<Gpio20, FunctionSioOutput, PullDown>,
-    Pin<Gpio21, FunctionSioOutput, PullDown>,
-    Pin<Gpio22, FunctionSioOutput, PullDown>,
->;
-
-impl<S, Tx, Sck, Cs, Dc, Rst, Bl> Tft<S, Tx, Sck, Cs, Dc, Rst, Bl>
-where
-    S: SpiDevice,
-    Tx: PinId + ValidPinIdTx<S>,
-    Sck: PinId + ValidPinIdSck<S>,
-    Cs: OutputPin,
-    Dc: OutputPin,
-    Rst: OutputPin,
-    Bl: OutputPin,
-{
-    pub fn on_spi0(
+impl Tft {
+    pub fn new(
         resets: &mut rp2040_hal::pac::RESETS,
         spi: pac::SPI0,
         mut timer: rp2040_hal::timer::Timer,
@@ -79,7 +56,7 @@ where
         dc: Pin<Gpio20, FunctionSioOutput, PullDown>,
         rst: Pin<Gpio21, FunctionSioOutput, PullDown>,
         backlight: Pin<Gpio22, FunctionSioOutput, PullDown>,
-    ) -> Tft0 {
+    ) -> Tft {
         let spi_pin_layout = (mosi, sclk);
         let spi = Spi::<_, _, _, 8>::new(spi, spi_pin_layout).init(
             resets,
@@ -90,24 +67,13 @@ where
 
         let spi_device =
             ExclusiveDevice::new(spi, cs, NoDelay).expect("failed to create Tft SPI device");
-        let mut tft = Tft::new(spi_device, dc, rst, backlight, &mut timer);
-        tft.backlight(true);
-        tft
-    }
 
-    pub fn new(
-        spi_device: TftSpiDevice<S, Tx, Sck, Cs>,
-        dc: Dc,
-        rst: Rst,
-        backlight: Bl,
-        delay: &mut Timer,
-    ) -> Tft<S, Tx, Sck, Cs, Dc, Rst, Bl> {
         let interface = SPIInterface::new(spi_device, dc);
 
         let display = Ili9341::new(
             interface,
             rst,
-            delay,
+            &mut timer,
             Orientation::Landscape,
             DisplaySize240x320,
         )

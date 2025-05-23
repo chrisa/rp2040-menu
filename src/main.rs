@@ -66,7 +66,7 @@ fn main() -> ! {
 
     let timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
 
-    let tft = tft::Tft0::on_spi0(
+    let mut tft = tft::Tft::new(
         &mut pac.RESETS,
         pac.SPI0,
         timer.clone(),
@@ -77,8 +77,9 @@ fn main() -> ! {
         pins.gpio21.into_function::<FunctionSioOutput>(),
         pins.gpio22.into_function::<FunctionSioOutput>(),
     );
+    tft.backlight(true);
 
-    let mut sd = sd::SpiSD::on_spi1(
+    let mut sd = sd::SpiSD::new(
         &mut pac.RESETS,
         pac.SPI1,
         timer.clone(),
