@@ -71,7 +71,7 @@ async fn main(_spawner: Spawner) {
 
     let sd: &'static SpiSD<'_> = SD.init(sd::SpiSD::new(r.sd));
     let mut fw = flash::FlashWriter::new();
-    uf2::read_blocks(&sd, "ARCADE.UF2", |block| {
+    uf2::read_blocks(sd, "ARCADE.UF2", |block| {
         fw.next_block(block);
     });
 

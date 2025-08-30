@@ -26,15 +26,14 @@ const HEIGHT: u16 = 240;
 const PIXEL_SIZE: usize = 2; // RGB565 = 2 bytes per pixel
 const FRAME_SIZE: usize = (WIDTH as usize) * (HEIGHT as usize) * PIXEL_SIZE;
 
+type SpiInterface<'spi> = interface::SpiInterface<
+    ExclusiveDevice<Spi<'spi, SPI0, Async>, Output<'spi>, Delay>,
+    Output<'spi>,
+>;
+type SpiDisplay<'spi> = Display<SpiInterface<'spi>, ILI9342CRgb565, Output<'spi>>;
+
 pub struct Tft<'spi> {
-    display: Display<
-        interface::SpiInterface<
-            ExclusiveDevice<Spi<'spi, SPI0, Async>, Output<'spi>, Delay>,
-            Output<'spi>,
-        >,
-        ILI9342CRgb565,
-        Output<'spi>,
-    >,
+    display: SpiDisplay<'spi>,
     backlight: Output<'spi>,
 }
 

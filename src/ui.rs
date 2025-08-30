@@ -1,11 +1,5 @@
 use crate::tft::Tft;
-use embedded_graphics::{
-    mono_font::{iso_8859_1::FONT_6X9, MonoTextStyle},
-    pixelcolor::Rgb565,
-    prelude::*,
-    text::Text,
-};
-use embedded_layout::prelude::*;
+use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
 
 pub struct UI<'spi> {
     tft: &'spi mut Tft<'spi>,
