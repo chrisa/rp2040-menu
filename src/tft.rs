@@ -4,7 +4,7 @@ use embedded_hal_02::spi::MODE_0;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use panic_probe as _;
 
-use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565, Drawable};
+use embedded_graphics::{Drawable, draw_target::DrawTarget, pixelcolor::Rgb565};
 
 use embassy_rp::{
     gpio::{Level, Output},
@@ -12,11 +12,10 @@ use embassy_rp::{
     spi::{Async, Config as SpiConfig, Spi},
 };
 use lcd_async::{
-    interface,
+    Builder, Display, TestImage, interface,
     models::ILI9342CRgb565,
     options::{ColorInversion, Orientation, Rotation},
     raw_framebuf::RawFrameBuf,
-    Builder, Display, TestImage,
 };
 
 use crate::TftResources;
@@ -50,7 +49,8 @@ impl<'spi> Tft<'spi> {
         let rst = Output::new(res.rst, Level::Low);
 
         let spi_delay = embassy_time::Delay;
-        let spi_device = ExclusiveDevice::new(spi, cs, spi_delay);
+        let spi_device = ExclusiveDevice::new(spi, cs, spi_delay)
+            .expect("failed to create exclusive bus for tft");
         let di = interface::SpiInterface::new(spi_device, dc);
 
         let mut delay = embassy_time::Delay;

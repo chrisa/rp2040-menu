@@ -50,7 +50,8 @@ impl<'spi> SpiSD<'spi> {
 
         let cs = Output::new(res.cs, Level::Low);
         let spi_delay = embassy_time::Delay;
-        let spi_device = ExclusiveDevice::new(spi, cs, spi_delay);
+        let spi_device = ExclusiveDevice::new(spi, cs, spi_delay)
+            .expect("failed to create exclusive bus for sd");
 
         let timer = embassy_time::Delay;
         let sdcard = SdCard::new(spi_device, timer);

@@ -6,14 +6,14 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 embassy-embedded-hal = { version = "0.3.0", features = ["defmt"] }
-embassy-sync = { version = "0.6.1", features = ["defmt"] }
+embassy-sync = { version = "0.7.2", features = ["defmt"] }
 embassy-executor = { version = "0.9.0", features = [
     "arch-cortex-m",
     "executor-thread",
     "executor-interrupt",
     "defmt",
 ] }
-embassy-time = { version = "0.4.0", features = [
+embassy-time = { version = "0.5.0", features = [
     "defmt",
     "defmt-timestamp-uptime",
 ] }
@@ -38,10 +38,9 @@ cortex-m-rt = "0.7.0"
 critical-section = "1.1"
 portable-atomic = { version = "1.11.1", features = ["critical-section"] }
 
-embedded-hal-1 = { package = "embedded-hal", version = "1.0.0" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.7" }
 embedded-hal-async = "1.0"
-embedded-hal-bus = { version = "0.1", features = ["async"] }
+embedded-hal-bus = { version = "0.3.0", features = ["async"] }
 embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
 
 panic-probe = { version = "1", features = ["print-defmt"] }
