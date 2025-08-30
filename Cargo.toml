@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "rp2040-menu"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
@@ -24,7 +24,6 @@ embassy-rp = { version = "0.8.0", default-features = false, features = [
     "time-driver",
     "critical-section-impl",
     "rp2040",
-    # "binary-info",
     "boot2-none",
 ] }
 embassy-futures = { version = "0.1.0" }
@@ -34,7 +33,6 @@ defmt-rtt = "1.0.0"
 fixed = "1.23.1"
 fixed-macro = "1.2"
 
-#cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m = { version = "0.7.6", features = ["inline-asm"] }
 cortex-m-rt = "0.7.0"
 critical-section = "1.1"
@@ -48,7 +46,6 @@ embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
 
 panic-probe = { version = "1", features = ["print-defmt"] }
 
-# ili9341 = "0.6.0"
 display-interface = "0.5.0"
 display-interface-spi = "0.5.0"
 embedded-graphics = { version = "0.8.1", features = ["defmt"] }
@@ -57,7 +54,6 @@ embedded-sdmmc = { version = "0.9.0", default-features = false, features = [
     "defmt-log",
 ] }
 
-# rp2040-hal = { version = "0.11", features = ["rt", "critical-section-impl"] }
 rp2040-boot2 = { path = "../../Pico/rp2040-boot2" }
 uf2_block = "0.1.0"
 rp2040-flash = "0.6.0"
