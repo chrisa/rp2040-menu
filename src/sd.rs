@@ -1,19 +1,18 @@
 use defmt::*;
-use embedded_hal::spi::MODE_0;
-use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
+use embassy_time::Delay;
+use embedded_hal_02::spi::MODE_0;
+use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_sdmmc::{
     DirEntry, Error, File, SdCard, SdCardError, TimeSource, Timestamp, VolumeIdx, VolumeManager,
 };
-use fugit::RateExtU32;
-use rp2040_hal::{
-    gpio::{
-        bank0::{Gpio10, Gpio11, Gpio12, Gpio13},
-        FunctionSioOutput, FunctionSpi, Pin, PullDown, PullNone, PullUp,
-    },
-    pac::{self, SPI1},
-    spi::{Enabled, Spi},
-    Timer,
+
+use embassy_rp::{
+    gpio::{Level, Output},
+    peripherals::SPI1,
+    spi::{Async, Config as SpiConfig, Spi},
 };
+
+use crate::SdResources;
 
 // This is just a placeholder TimeSource. In a real world application
 // one would probably use the RTC to provide time.
@@ -32,48 +31,28 @@ impl TimeSource for Clock {
     }
 }
 
-pub type SdSpiDevice = ExclusiveDevice<
-    Spi<
-        Enabled,
-        SPI1,
-        (
-            Pin<Gpio11, FunctionSpi, PullNone>,
-            Pin<Gpio12, FunctionSpi, PullUp>,
-            Pin<Gpio10, FunctionSpi, PullNone>,
-        ),
-    >,
-    Pin<Gpio13, rp2040_hal::gpio::FunctionSio<rp2040_hal::gpio::SioOutput>, PullDown>,
-    NoDelay,
->;
+pub type SdSpiDevice<'spi> = ExclusiveDevice<Spi<'spi, SPI1, Async>, Output<'spi>, Delay>;
 
-pub type SdFile<'a> = File<'a, SdCard<SdSpiDevice, Timer>, Clock, 4, 4, 1>;
-
-pub struct SpiSD {
-    volume_manager: VolumeManager<SdCard<SdSpiDevice, Timer>, Clock>,
+pub struct SpiSD<'spi> {
+    volume_manager: VolumeManager<SdCard<SdSpiDevice<'spi>, Delay>, Clock>,
 }
 
-impl SpiSD {
-    pub fn new(
-        resets: &mut rp2040_hal::pac::RESETS,
-        spi: pac::SPI1,
-        timer: rp2040_hal::Timer,
-        mosi: Pin<Gpio11, FunctionSpi, PullNone>,
-        miso: Pin<Gpio12, FunctionSpi, PullUp>,
-        sclk: Pin<Gpio10, FunctionSpi, PullNone>,
-        cs: Pin<Gpio13, FunctionSioOutput, PullDown>,
-    ) -> SpiSD {
-        let spi_pin_layout = (mosi, miso, sclk);
+impl<'spi> SpiSD<'spi> {
+    pub fn new(res: SdResources) -> SpiSD<'spi> {
+        let mut spi_cfg = SpiConfig::default();
+        spi_cfg.frequency = 12_000_000;
+        spi_cfg.polarity = MODE_0.polarity;
+        spi_cfg.phase = MODE_0.phase;
 
-        let spi = Spi::<_, _, _, 8>::new(spi, spi_pin_layout).init(
-            resets,
-            125u32.MHz(),
-            400u32.kHz(),
-            MODE_0,
+        let spi = Spi::new(
+            res.spi, res.sclk, res.mosi, res.miso, res.tx_dma, res.rx_dma, spi_cfg,
         );
 
-        let spi_device =
-            ExclusiveDevice::new(spi, cs, NoDelay).expect("failed to create SD SPI dev");
+        let cs = Output::new(res.cs, Level::Low);
+        let spi_delay = embassy_time::Delay;
+        let spi_device = ExclusiveDevice::new(spi, cs, spi_delay);
 
+        let timer = embassy_time::Delay;
         let sdcard = SdCard::new(spi_device, timer);
         info!(
             "Card size is {} bytes",
@@ -84,13 +63,13 @@ impl SpiSD {
         SpiSD { volume_manager }
     }
 
-    pub fn iterate_root_dir<F>(&mut self, mut func: F) -> Result<(), Error<SdCardError>>
-    where
-        F: FnMut(&DirEntry),
-    {
-        let mut volume0 = self.volume_manager.open_volume(VolumeIdx(0))?;
+    pub fn iterate_root_dir(
+        &self,
+        mut func: impl FnMut(&DirEntry),
+    ) -> Result<(), Error<SdCardError>> {
+        let volume0 = self.volume_manager.open_volume(VolumeIdx(0))?;
         info!("Volume 0: {:?}", volume0);
-        let mut root_dir = volume0.open_root_dir()?;
+        let root_dir = volume0.open_root_dir()?;
         root_dir
             .iterate_dir(|entry: &DirEntry| {
                 info!("Entry: {}", defmt::Display2Format(&entry.name));
@@ -100,19 +79,20 @@ impl SpiSD {
         Ok(())
     }
 
-    pub fn open<F>(&mut self, filename: &str, mut func: F) -> Result<(), Error<SdCardError>>
-    where
-        F: FnMut(&mut SdFile<'_>),
-    {
-        let mut volume0 = self
+    pub fn open(
+        &self,
+        filename: &str,
+        func: impl FnOnce(&File<'_, SdCard<SdSpiDevice<'_>, Delay>, Clock, 4, 4, 1>),
+    ) -> Result<(), Error<SdCardError>> {
+        let volume0 = self
             .volume_manager
             .open_volume(VolumeIdx(0))
             .expect("failed to open volume");
-        let mut root_dir = volume0.open_root_dir().expect("failed to open root dir");
-        let mut f = root_dir
+        let root_dir = volume0.open_root_dir().expect("failed to open root dir");
+        let f = root_dir
             .open_file_in_dir(filename, embedded_sdmmc::Mode::ReadOnly)
             .expect("failed to open file");
-        func(&mut f);
+        func(&f);
         Ok(())
     }
 }

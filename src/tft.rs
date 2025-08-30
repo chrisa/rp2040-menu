@@ -1,110 +1,108 @@
 use defmt_rtt as _;
-use fugit::RateExtU32;
+use embassy_time::Delay;
+use embedded_hal_02::spi::MODE_0;
+use embedded_hal_bus::spi::ExclusiveDevice;
 use panic_probe as _;
 
-use display_interface_spi::SPIInterface;
-use embedded_graphics::{
-    mono_font::{ascii::FONT_8X13, MonoTextStyle},
-    pixelcolor::Rgb565,
-    prelude::*,
-    primitives::{PrimitiveStyle, Rectangle},
-    text::{Alignment, Text},
-};
-use embedded_hal::digital::OutputPin;
-use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
-use ili9341::{DisplaySize240x320, Ili9341, Orientation, SPI_MODE};
+use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565, Drawable};
 
-use rp2040_hal::{
-    gpio::{
-        bank0::{Gpio17, Gpio18, Gpio19, Gpio20, Gpio21, Gpio22},
-        FunctionSioOutput, FunctionSpi, Pin, PullDown,
-    },
-    pac::{self, SPI0},
-    spi::{Enabled, Spi},
+use embassy_rp::{
+    gpio::{Level, Output},
+    peripherals::SPI0,
+    spi::{Async, Config as SpiConfig, Spi},
+};
+use lcd_async::{
+    interface,
+    models::ILI9342CRgb565,
+    options::{ColorInversion, Orientation, Rotation},
+    raw_framebuf::RawFrameBuf,
+    Builder, Display, TestImage,
 };
 
-pub struct Tft {
-    pub display: Ili9341<
-        SPIInterface<
-            ExclusiveDevice<
-                Spi<
-                    Enabled,
-                    SPI0,
-                    (
-                        Pin<Gpio19, FunctionSpi, PullDown>,
-                        Pin<Gpio18, FunctionSpi, PullDown>,
-                    ),
-                >,
-                Pin<Gpio17, rp2040_hal::gpio::FunctionSio<rp2040_hal::gpio::SioOutput>, PullDown>,
-                NoDelay,
-            >,
-            Pin<Gpio20, rp2040_hal::gpio::FunctionSio<rp2040_hal::gpio::SioOutput>, PullDown>,
+use crate::TftResources;
+
+const WIDTH: u16 = 320;
+const HEIGHT: u16 = 240;
+const PIXEL_SIZE: usize = 2; // RGB565 = 2 bytes per pixel
+const FRAME_SIZE: usize = (WIDTH as usize) * (HEIGHT as usize) * PIXEL_SIZE;
+
+pub struct Tft<'spi> {
+    display: Display<
+        interface::SpiInterface<
+            ExclusiveDevice<Spi<'spi, SPI0, Async>, Output<'spi>, Delay>,
+            Output<'spi>,
         >,
-        Pin<Gpio21, rp2040_hal::gpio::FunctionSio<rp2040_hal::gpio::SioOutput>, PullDown>,
+        ILI9342CRgb565,
+        Output<'spi>,
     >,
-    backlight: Pin<Gpio22, FunctionSioOutput, PullDown>,
+    backlight: Output<'spi>,
 }
 
-impl Tft {
-    pub fn new(
-        resets: &mut rp2040_hal::pac::RESETS,
-        spi: pac::SPI0,
-        mut timer: rp2040_hal::timer::Timer,
-        mosi: Pin<Gpio19, FunctionSpi, PullDown>,
-        sclk: Pin<Gpio18, FunctionSpi, PullDown>,
-        cs: Pin<Gpio17, FunctionSioOutput, PullDown>,
-        dc: Pin<Gpio20, FunctionSioOutput, PullDown>,
-        rst: Pin<Gpio21, FunctionSioOutput, PullDown>,
-        backlight: Pin<Gpio22, FunctionSioOutput, PullDown>,
-    ) -> Tft {
-        let spi_pin_layout = (mosi, sclk);
-        let spi = Spi::<_, _, _, 8>::new(spi, spi_pin_layout).init(
-            resets,
-            125u32.MHz(),
-            64000u32.kHz(),
-            SPI_MODE,
-        );
+impl<'spi> Tft<'spi> {
+    pub async fn new(res: TftResources) -> Tft<'spi> {
+        let mut spi_cfg = SpiConfig::default();
+        spi_cfg.frequency = 125_000_000;
+        spi_cfg.polarity = MODE_0.polarity;
+        spi_cfg.phase = MODE_0.phase;
+        let spi = Spi::new_txonly(res.spi, res.sclk, res.mosi, res.dma, spi_cfg);
 
-        let spi_device =
-            ExclusiveDevice::new(spi, cs, NoDelay).expect("failed to create Tft SPI device");
+        let cs = Output::new(res.cs, Level::Low);
+        let dc = Output::new(res.dc, Level::Low);
+        let rst = Output::new(res.rst, Level::Low);
 
-        let interface = SPIInterface::new(spi_device, dc);
+        let spi_delay = embassy_time::Delay;
+        let spi_device = ExclusiveDevice::new(spi, cs, spi_delay);
+        let di = interface::SpiInterface::new(spi_device, dc);
 
-        let display = Ili9341::new(
-            interface,
-            rst,
-            &mut timer,
-            Orientation::Landscape,
-            DisplaySize240x320,
-        )
-        .unwrap();
+        let mut delay = embassy_time::Delay;
+        let display = Builder::new(ILI9342CRgb565, di)
+            .reset_pin(rst)
+            .display_size(WIDTH, HEIGHT)
+            .invert_colors(ColorInversion::Normal)
+            .orientation(Orientation {
+                rotation: Rotation::Deg90,
+                mirrored: true,
+            })
+            .display_offset(0, 0)
+            .init(&mut delay)
+            .await
+            .unwrap();
+
+        let backlight = Output::new(res.backlight, Level::Low);
 
         Tft { display, backlight }
     }
 
-    pub fn backlight(&mut self, on: bool) {
+    pub async fn backlight(&mut self, on: bool) {
         if on {
-            self.backlight.set_high().unwrap();
+            self.backlight.set_high()
         } else {
-            self.backlight.set_low().unwrap();
+            self.backlight.set_low();
         }
     }
 
-    pub fn clear(&mut self, color: Rgb565) {
-        self.display.clear(color).unwrap();
+    pub async fn clear(&mut self, color: Rgb565) {
+        let mut framebuffer = [0; FRAME_SIZE];
+
+        let mut raw_fb =
+            RawFrameBuf::<Rgb565, _>::new(framebuffer.as_mut_slice(), WIDTH.into(), HEIGHT.into());
+        raw_fb.clear(color).unwrap();
+        self.draw(&framebuffer).await;
     }
 
-    pub fn part_clear(&mut self, x: i32, y: i32, w: u32, h: u32) {
-        Rectangle::new(Point::new(x, y), Size::new(w, h))
-            .into_styled(PrimitiveStyle::with_fill(Rgb565::WHITE))
-            .draw(&mut self.display)
-            .unwrap();
+    pub async fn test_image(&mut self) {
+        let mut framebuffer = [0; FRAME_SIZE];
+        let mut raw_fb =
+            RawFrameBuf::<Rgb565, _>::new(framebuffer.as_mut_slice(), WIDTH.into(), HEIGHT.into());
+        let test: TestImage<Rgb565> = TestImage::new();
+        test.draw(&mut raw_fb).unwrap();
+        self.draw(&framebuffer).await;
     }
 
-    pub fn println(&mut self, text: &str, x: i32, y: i32) {
-        let style = MonoTextStyle::new(&FONT_8X13, Rgb565::RED);
-        Text::with_alignment(text, Point::new(x, y), style, Alignment::Center)
-            .draw(&mut self.display)
+    pub async fn draw(&mut self, framebuffer: &[u8; FRAME_SIZE]) {
+        self.display
+            .show_raw_data(0, 0, WIDTH, HEIGHT, framebuffer)
+            .await
             .unwrap();
     }
 }

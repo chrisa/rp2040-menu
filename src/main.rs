@@ -1,22 +1,20 @@
 #![no_std]
 #![no_main]
 
-use defmt::*;
+use assign_resources::assign_resources;
+use embassy_executor::Spawner;
+use embassy_rp::peripherals;
+use embassy_rp::Peri;
+use static_cell::StaticCell;
+
 use defmt_rtt as _;
 use panic_probe as _;
 
-use rp2040_boot2::BOOT_LOADER_W25Q080_TOP64K;
-use rp2040_hal::{
-    clocks::init_clocks_and_plls,
-    entry,
-    gpio::{FunctionSioOutput, FunctionSpi},
-    pac,
-    sio::Sio,
-    timer::Timer,
-    watchdog::Watchdog,
-};
-
 use config::CONFIG_ILI9341;
+use rp2040_boot2::BOOT_LOADER_W25Q080_TOP64K;
+
+use crate::sd::SpiSD;
+use crate::tft::Tft;
 
 mod boot;
 mod config;
@@ -36,72 +34,44 @@ pub static CONFIG: [u8; 256] = CONFIG_ILI9341;
 
 const XIP_BASE: u32 = 0x10000000;
 
-#[entry]
-fn main() -> ! {
-    info!("Program start");
-    let mut pac = pac::Peripherals::take().unwrap();
-    let mut watchdog = Watchdog::new(pac.WATCHDOG);
-    let sio = Sio::new(pac.SIO);
+assign_resources! {
+    tft: TftResources {
+        spi: SPI0,
+        mosi: PIN_19,
+        sclk: PIN_18,
+        cs: PIN_17,
+        dc: PIN_20,
+        rst: PIN_21,
+        backlight: PIN_22,
+        dma: DMA_CH0,
+    },
+    sd: SdResources {
+        spi: SPI1,
+        mosi: PIN_11,
+        miso: PIN_12,
+        sclk: PIN_10,
+        cs: PIN_13,
+        tx_dma: DMA_CH1,
+        rx_dma: DMA_CH2,
+    }
+}
 
-    // External high-speed crystal on the pico board is 12Mhz
-    let external_xtal_freq_hz = 12_000_000u32;
-    let clocks = init_clocks_and_plls(
-        external_xtal_freq_hz,
-        pac.XOSC,
-        pac.CLOCKS,
-        pac.PLL_SYS,
-        pac.PLL_USB,
-        &mut pac.RESETS,
-        &mut watchdog,
-    )
-    .ok()
-    .unwrap();
+static TFT: StaticCell<Tft<'_>> = StaticCell::new();
+static SD: StaticCell<SpiSD<'_>> = StaticCell::new();
 
-    let pins = rp2040_hal::gpio::Pins::new(
-        pac.IO_BANK0,
-        pac.PADS_BANK0,
-        sio.gpio_bank0,
-        &mut pac.RESETS,
-    );
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p = embassy_rp::init(Default::default());
+    let r = split_resources!(p);
 
-    let timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
-
-    let mut tft = tft::Tft::new(
-        &mut pac.RESETS,
-        pac.SPI0,
-        timer.clone(),
-        pins.gpio19.into_function::<FunctionSpi>(),
-        pins.gpio18.into_function::<FunctionSpi>(),
-        pins.gpio17.into_function::<FunctionSioOutput>(),
-        pins.gpio20.into_function::<FunctionSioOutput>(),
-        pins.gpio21.into_function::<FunctionSioOutput>(),
-        pins.gpio22.into_function::<FunctionSioOutput>(),
-    );
-    tft.backlight(true);
-
-    let mut sd = sd::SpiSD::new(
-        &mut pac.RESETS,
-        pac.SPI1,
-        timer.clone(),
-        pins.gpio11.reconfigure(),
-        pins.gpio12.reconfigure(),
-        pins.gpio10.reconfigure(),
-        pins.gpio13.into_push_pull_output(),
-    );
-
-    // let mut y = 60;
-    // sd.iterate_root_dir(|entry| {
-    //     Tft.println(core::str::from_utf8(entry.name.base_name()).unwrap(), 40, y);
-    //     y += 20;
-    // })
-    // .unwrap();
-
-    // Set up UI
+    let tft: &mut Tft<'_> = TFT.init(tft::Tft::new(r.tft).await);
+    tft.backlight(true).await;
     let mut ui = ui::UI::new(tft);
-    ui.init();
+    ui.init().await;
 
+    let sd: &'static SpiSD<'_> = SD.init(sd::SpiSD::new(r.sd));
     let mut fw = flash::FlashWriter::new();
-    uf2::read_blocks(&mut sd, "ARCADE.UF2", |block| {
+    uf2::read_blocks(&sd, "ARCADE.UF2", |block| {
         fw.next_block(block);
     });
 

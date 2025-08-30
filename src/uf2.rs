@@ -4,7 +4,7 @@ const UF2_BLOCK_LENGTH: usize = 512;
 
 use crate::sd::SpiSD;
 
-pub fn read_blocks<F>(sd: &mut SpiSD, filename: &str, mut func: F)
+pub fn read_blocks<'a, F>(sd: &'a SpiSD<'a>, filename: &str, mut func: F)
 where
     F: FnMut(&Block),
 {

@@ -5,29 +5,66 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-cortex-m = "0.7"
-cortex-m-rt = "0.7"
-embedded-hal = { version = "1.0.0" }
+embassy-embedded-hal = { version = "0.3.0", features = ["defmt"] }
+embassy-sync = { version = "0.6.1", features = ["defmt"] }
+embassy-executor = { version = "0.9.0", features = [
+    "arch-cortex-m",
+    "executor-thread",
+    "executor-interrupt",
+    "defmt",
+] }
+embassy-time = { version = "0.4.0", features = [
+    "defmt",
+    "defmt-timestamp-uptime",
+] }
+embassy-rp = { version = "0.8.0", default-features = false, features = [
+    "rt",
+    "defmt",
+    "unstable-pac",
+    "time-driver",
+    "critical-section-impl",
+    "rp2040",
+    # "binary-info",
+    "boot2-none",
+] }
+embassy-futures = { version = "0.1.0" }
 
-defmt = "1"
-defmt-rtt = "1"
+defmt = "1.0.1"
+defmt-rtt = "1.0.0"
+fixed = "1.23.1"
+fixed-macro = "1.2"
+
+#cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
+cortex-m = { version = "0.7.6", features = ["inline-asm"] }
+cortex-m-rt = "0.7.0"
+critical-section = "1.1"
+portable-atomic = { version = "1.11.1", features = ["critical-section"] }
+
+embedded-hal-1 = { package = "embedded-hal", version = "1.0.0" }
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.7" }
+embedded-hal-async = "1.0"
+embedded-hal-bus = { version = "0.1", features = ["async"] }
+embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
+
 panic-probe = { version = "1", features = ["print-defmt"] }
 
-ili9341 = "0.6.0"
+# ili9341 = "0.6.0"
 display-interface = "0.5.0"
 display-interface-spi = "0.5.0"
 embedded-graphics = { version = "0.8.1", features = ["defmt"] }
-embedded-hal-bus = "0.3.0"
 fugit = "0.3.7"
-embedded-sdmmc = { version = "0.8.1", default-features = false, features = [
+embedded-sdmmc = { version = "0.9.0", default-features = false, features = [
     "defmt-log",
 ] }
 
-rp2040-hal = { version = "0.11", features = ["rt", "critical-section-impl"] }
+# rp2040-hal = { version = "0.11", features = ["rt", "critical-section-impl"] }
 rp2040-boot2 = { path = "../../Pico/rp2040-boot2" }
 uf2_block = "0.1.0"
 rp2040-flash = "0.6.0"
 embedded-layout = "0.4.2"
+assign-resources = "0.5.0"
+lcd-async = "0.1.1"
+static_cell = "2.1.1"
 
 # cargo build/run
 [profile.dev]
