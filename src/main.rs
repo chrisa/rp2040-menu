@@ -1,8 +1,6 @@
 #![no_std]
 #![no_main]
 
-use alloc::boxed::Box;
-use alloc::vec;
 use assign_resources::assign_resources;
 use embassy_executor::Spawner;
 use embassy_rp::Peri;
@@ -20,7 +18,6 @@ use crate::tft::FRAME_SIZE;
 use crate::tft::Tft;
 
 use core::ptr::addr_of_mut;
-use core::u8;
 // Linked-List First Fit Heap allocator (feature = "llff")
 use embedded_alloc::LlffHeap as Heap;
 // Two-Level Segregated Fit Heap allocator (feature = "tlsf")

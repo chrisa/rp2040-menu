@@ -118,7 +118,7 @@ impl<'spi> Tft<'spi> {
         raw_fb.clear(color).unwrap();
         // self.draw(self.framebuffer.as_slice()).await;
         self.display
-            .show_raw_data(0, 0, WIDTH, HEIGHT, &**self.framebuffer)
+            .show_raw_data(0, 0, WIDTH, HEIGHT, self.framebuffer.as_slice())
             .await
             .unwrap();
     }
@@ -133,7 +133,7 @@ impl<'spi> Tft<'spi> {
         test.draw(&mut raw_fb).unwrap();
         // self.draw(self.framebuffer).await;
         self.display
-            .show_raw_data(0, 0, WIDTH, HEIGHT, &**self.framebuffer)
+            .show_raw_data(0, 0, WIDTH, HEIGHT, self.framebuffer.as_slice())
             .await
             .unwrap();
     }
