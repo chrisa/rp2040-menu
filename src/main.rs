@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+use alloc::boxed::Box;
+use alloc::vec;
 use assign_resources::assign_resources;
 use embassy_executor::Spawner;
 use embassy_rp::Peri;
@@ -14,7 +16,17 @@ use config::CONFIG_ILI9341;
 use rp2040_boot2::BOOT_LOADER_W25Q080_TOP64K;
 
 use crate::sd::SpiSD;
+use crate::tft::FRAME_SIZE;
 use crate::tft::Tft;
+
+use core::ptr::addr_of_mut;
+use core::u8;
+// Linked-List First Fit Heap allocator (feature = "llff")
+use embedded_alloc::LlffHeap as Heap;
+// Two-Level Segregated Fit Heap allocator (feature = "tlsf")
+// use embedded_alloc::TlsfHeap as Heap;
+
+extern crate alloc;
 
 mod boot;
 mod config;
@@ -56,11 +68,21 @@ assign_resources! {
     }
 }
 
+#[global_allocator]
+static HEAP: Heap = Heap::empty();
+
 static TFT: StaticCell<Tft<'_>> = StaticCell::new();
 static SD: StaticCell<SpiSD<'_>> = StaticCell::new();
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
+    {
+        use core::mem::MaybeUninit;
+        const HEAP_SIZE: usize = FRAME_SIZE;
+        static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+        unsafe { HEAP.init(addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE) }
+    }
+
     let p = embassy_rp::init(Default::default());
     let r = split_resources!(p);
 
@@ -69,7 +91,11 @@ async fn main(_spawner: Spawner) {
     let mut ui = ui::UI::new(tft);
     ui.init().await;
 
-    let sd: &'static SpiSD<'_> = SD.init(sd::SpiSD::new(r.sd));
+    let sd = match sd::SpiSD::new(r.sd) {
+        Err(_e) => panic!("failed to read card"),
+        Ok(sd) => SD.init(sd),
+    };
+
     let mut fw = flash::FlashWriter::new();
     uf2::read_blocks(sd, "ARCADE.UF2", |block| {
         fw.next_block(block);

@@ -38,7 +38,7 @@ pub struct SpiSD<'spi> {
 }
 
 impl<'spi> SpiSD<'spi> {
-    pub fn new(res: SdResources) -> SpiSD<'spi> {
+    pub fn new(res: SdResources) -> Result<SpiSD<'spi>, Error<SdCardError>> {
         let mut spi_cfg = SpiConfig::default();
         spi_cfg.frequency = 12_000_000;
         spi_cfg.polarity = MODE_0.polarity;
@@ -55,13 +55,16 @@ impl<'spi> SpiSD<'spi> {
 
         let timer = embassy_time::Delay;
         let sdcard = SdCard::new(spi_device, timer);
-        info!(
-            "Card size is {} bytes",
-            sdcard.num_bytes().expect("failed to read size of card")
-        );
+
+        let card_size = match sdcard.num_bytes() {
+            Ok(size) => size,
+            Err(e) => return Err(Error::DeviceError(e)),
+        };
+
+        info!("Card size is {} bytes", card_size);
         let timesource = Clock {};
         let volume_manager = VolumeManager::new(sdcard, timesource);
-        SpiSD { volume_manager }
+        Ok(SpiSD { volume_manager })
     }
 
     pub fn iterate_root_dir(

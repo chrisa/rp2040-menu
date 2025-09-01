@@ -11,8 +11,9 @@ impl<'spi> UI<'spi> {
     }
 
     pub async fn init(&mut self) {
-        self.tft.clear(Rgb565::GREEN).await;
+        self.tft.clear(Rgb565::WHITE).await;
         self.tft.test_image().await;
+
         // self.tft.println("Hello from RP2040", 100, 40);
 
         // let display_area = self.tft.display.bounding_box();

@@ -60,6 +60,7 @@ embedded-layout = "0.4.2"
 assign-resources = "0.5.0"
 lcd-async = "0.1.1"
 static_cell = "2.1.1"
+embedded-alloc = "0.6.0"
 
 # cargo build/run
 [profile.dev]

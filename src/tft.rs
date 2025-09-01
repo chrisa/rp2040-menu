@@ -4,6 +4,10 @@ use embedded_hal_02::spi::MODE_0;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use panic_probe as _;
 
+use alloc::boxed::Box;
+use alloc::vec;
+use alloc::vec::Vec;
+
 use embedded_graphics::{Drawable, draw_target::DrawTarget, pixelcolor::Rgb565};
 
 use embassy_rp::{
@@ -17,13 +21,29 @@ use lcd_async::{
     options::{ColorInversion, Orientation, Rotation},
     raw_framebuf::RawFrameBuf,
 };
+use static_cell::StaticCell;
 
 use crate::TftResources;
+
+macro_rules! box_array {
+    ($val:expr ; $len:expr) => {{
+        // Use a generic function so that the pointer cast remains type-safe
+        fn vec_to_boxed_array<T>(vec: Vec<T>) -> Box<[T; $len]> {
+            let boxed_slice = vec.into_boxed_slice();
+
+            let ptr = Box::into_raw(boxed_slice) as *mut [T; $len];
+
+            unsafe { Box::from_raw(ptr) }
+        }
+
+        vec_to_boxed_array(vec![$val; $len])
+    }};
+}
 
 const WIDTH: u16 = 320;
 const HEIGHT: u16 = 240;
 const PIXEL_SIZE: usize = 2; // RGB565 = 2 bytes per pixel
-const FRAME_SIZE: usize = (WIDTH as usize) * (HEIGHT as usize) * PIXEL_SIZE;
+pub const FRAME_SIZE: usize = (WIDTH as usize) * (HEIGHT as usize) * PIXEL_SIZE;
 
 type SpiInterface<'spi> = interface::SpiInterface<
     ExclusiveDevice<Spi<'spi, SPI0, Async>, Output<'spi>, Delay>,
@@ -34,7 +54,10 @@ type SpiDisplay<'spi> = Display<SpiInterface<'spi>, ILI9342CRgb565, Output<'spi>
 pub struct Tft<'spi> {
     display: SpiDisplay<'spi>,
     backlight: Output<'spi>,
+    framebuffer: &'spi mut Box<[u8; FRAME_SIZE]>,
 }
+
+static FB: StaticCell<Box<[u8; FRAME_SIZE]>> = StaticCell::new();
 
 impl<'spi> Tft<'spi> {
     pub async fn new(res: TftResources) -> Tft<'spi> {
@@ -69,7 +92,13 @@ impl<'spi> Tft<'spi> {
 
         let backlight = Output::new(res.backlight, Level::Low);
 
-        Tft { display, backlight }
+        let framebuffer = FB.init(box_array! [0; FRAME_SIZE]);
+
+        Tft {
+            display,
+            backlight,
+            framebuffer,
+        }
     }
 
     pub async fn backlight(&mut self, on: bool) {
@@ -81,24 +110,35 @@ impl<'spi> Tft<'spi> {
     }
 
     pub async fn clear(&mut self, color: Rgb565) {
-        let mut framebuffer = [0; FRAME_SIZE];
-
-        let mut raw_fb =
-            RawFrameBuf::<Rgb565, _>::new(framebuffer.as_mut_slice(), WIDTH.into(), HEIGHT.into());
+        let mut raw_fb = RawFrameBuf::<Rgb565, _>::new(
+            self.framebuffer.as_mut_slice(),
+            WIDTH.into(),
+            HEIGHT.into(),
+        );
         raw_fb.clear(color).unwrap();
-        self.draw(&framebuffer).await;
+        // self.draw(self.framebuffer.as_slice()).await;
+        self.display
+            .show_raw_data(0, 0, WIDTH, HEIGHT, &**self.framebuffer)
+            .await
+            .unwrap();
     }
 
     pub async fn test_image(&mut self) {
-        let mut framebuffer = [0; FRAME_SIZE];
-        let mut raw_fb =
-            RawFrameBuf::<Rgb565, _>::new(framebuffer.as_mut_slice(), WIDTH.into(), HEIGHT.into());
+        let mut raw_fb = RawFrameBuf::<Rgb565, _>::new(
+            self.framebuffer.as_mut_slice(),
+            WIDTH.into(),
+            HEIGHT.into(),
+        );
         let test: TestImage<Rgb565> = TestImage::new();
         test.draw(&mut raw_fb).unwrap();
-        self.draw(&framebuffer).await;
+        // self.draw(self.framebuffer).await;
+        self.display
+            .show_raw_data(0, 0, WIDTH, HEIGHT, &**self.framebuffer)
+            .await
+            .unwrap();
     }
 
-    pub async fn draw(&mut self, framebuffer: &[u8; FRAME_SIZE]) {
+    pub async fn draw(&mut self, framebuffer: &[u8]) {
         self.display
             .show_raw_data(0, 0, WIDTH, HEIGHT, framebuffer)
             .await
