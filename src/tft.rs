@@ -1,3 +1,5 @@
+use core::convert::Infallible;
+
 use defmt_rtt as _;
 use embassy_time::Delay;
 use embedded_hal_02::spi::MODE_0;
@@ -112,28 +114,41 @@ impl<'spi> Tft<'spi> {
     pub async fn clear(&mut self, color: Rgb565) {
         self.draw(|raw_fb| {
             raw_fb.clear(color).unwrap();
+            Ok(())
         })
-        .await;
+        .await
+        .expect("clear");
     }
 
     pub async fn test_image(&mut self) {
         self.draw(|raw_fb| {
             let test: TestImage<Rgb565> = TestImage::new();
-            test.draw(raw_fb).unwrap();
+            test.draw(raw_fb)?;
+            Ok(())
         })
-        .await;
+        .await
+        .expect("test image");
     }
 
-    pub async fn draw(&mut self, func: impl FnOnce(&mut RawFrameBuf<Rgb565, &mut [u8]>)) {
+    pub async fn draw(
+        &mut self,
+        func: impl FnOnce(&mut RawFrameBuf<Rgb565, &mut [u8]>) -> Result<(), Infallible>,
+    ) -> Result<
+        (),
+        interface::SpiError<
+            embedded_hal_bus::spi::DeviceError<embassy_rp::spi::Error, Infallible>,
+            Infallible,
+        >,
+    > {
         let mut raw_fb = RawFrameBuf::<Rgb565, _>::new(
             self.framebuffer.as_mut_slice(),
             WIDTH.into(),
             HEIGHT.into(),
         );
-        func(&mut raw_fb);
+        func(&mut raw_fb).expect("infallible drawing op");
         self.display
             .show_raw_data(0, 0, WIDTH, HEIGHT, self.framebuffer.as_slice())
-            .await
-            .unwrap();
+            .await?;
+        Ok(())
     }
 }
