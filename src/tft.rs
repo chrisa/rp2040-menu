@@ -110,37 +110,29 @@ impl<'spi> Tft<'spi> {
     }
 
     pub async fn clear(&mut self, color: Rgb565) {
-        let mut raw_fb = RawFrameBuf::<Rgb565, _>::new(
-            self.framebuffer.as_mut_slice(),
-            WIDTH.into(),
-            HEIGHT.into(),
-        );
-        raw_fb.clear(color).unwrap();
-        // self.draw(self.framebuffer.as_slice()).await;
-        self.display
-            .show_raw_data(0, 0, WIDTH, HEIGHT, self.framebuffer.as_slice())
-            .await
-            .unwrap();
+        self.draw(|raw_fb| {
+            raw_fb.clear(color).unwrap();
+        })
+        .await;
     }
 
     pub async fn test_image(&mut self) {
+        self.draw(|raw_fb| {
+            let test: TestImage<Rgb565> = TestImage::new();
+            test.draw(raw_fb).unwrap();
+        })
+        .await;
+    }
+
+    pub async fn draw(&mut self, func: impl FnOnce(&mut RawFrameBuf<Rgb565, &mut [u8]>)) {
         let mut raw_fb = RawFrameBuf::<Rgb565, _>::new(
             self.framebuffer.as_mut_slice(),
             WIDTH.into(),
             HEIGHT.into(),
         );
-        let test: TestImage<Rgb565> = TestImage::new();
-        test.draw(&mut raw_fb).unwrap();
-        // self.draw(self.framebuffer).await;
+        func(&mut raw_fb);
         self.display
             .show_raw_data(0, 0, WIDTH, HEIGHT, self.framebuffer.as_slice())
-            .await
-            .unwrap();
-    }
-
-    pub async fn draw(&mut self, framebuffer: &[u8]) {
-        self.display
-            .show_raw_data(0, 0, WIDTH, HEIGHT, framebuffer)
             .await
             .unwrap();
     }
