@@ -13,23 +13,20 @@ use panic_probe as _;
 use config::CONFIG_ILI9341;
 use rp2040_boot2::BOOT_LOADER_W25Q080_TOP64K;
 
+use crate::display::Display;
+use crate::display::FRAME_SIZE;
 use crate::sd::SpiSD;
-use crate::tft::FRAME_SIZE;
-use crate::tft::Tft;
 
 use core::ptr::addr_of_mut;
-// Linked-List First Fit Heap allocator (feature = "llff")
 use embedded_alloc::LlffHeap as Heap;
-// Two-Level Segregated Fit Heap allocator (feature = "tlsf")
-// use embedded_alloc::TlsfHeap as Heap;
 
 extern crate alloc;
 
 mod boot;
 mod config;
+mod display;
 mod flash;
 mod sd;
-mod tft;
 mod uf2;
 mod ui;
 
@@ -44,7 +41,7 @@ pub static CONFIG: [u8; 256] = CONFIG_ILI9341;
 const XIP_BASE: u32 = 0x10000000;
 
 assign_resources! {
-    tft: TftResources {
+    display: DisplayResources {
         spi: SPI0,
         mosi: PIN_19,
         sclk: PIN_18,
@@ -68,7 +65,7 @@ assign_resources! {
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
-static TFT: StaticCell<Tft<'_>> = StaticCell::new();
+static TFT: StaticCell<Display<'_>> = StaticCell::new();
 static SD: StaticCell<SpiSD<'_>> = StaticCell::new();
 
 #[embassy_executor::main]
@@ -83,7 +80,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let r = split_resources!(p);
 
-    let tft: &mut Tft<'_> = TFT.init(tft::Tft::new(r.tft).await);
+    let tft: &mut Display<'_> = TFT.init(display::Display::new(r.display).await);
     tft.backlight(true).await;
     let mut ui = ui::UI::new(tft);
     ui.init().await;

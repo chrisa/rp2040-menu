@@ -1,20 +1,21 @@
-use crate::tft::Tft;
-use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
-
 use embedded_graphics::{
     mono_font::{MonoTextStyle, ascii::FONT_6X10},
+    pixelcolor::Rgb565,
+    prelude::*,
     primitives::{
         Circle, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, StrokeAlignment, Triangle,
     },
     text::{Alignment, Text},
 };
 
+use crate::display::Display;
+
 pub struct UI<'spi> {
-    tft: &'spi mut Tft<'spi>,
+    tft: &'spi mut Display<'spi>,
 }
 
 impl<'spi> UI<'spi> {
-    pub fn new(tft: &'spi mut Tft<'spi>) -> UI<'spi> {
+    pub fn new(tft: &'spi mut Display<'spi>) -> UI<'spi> {
         Self { tft }
     }
 

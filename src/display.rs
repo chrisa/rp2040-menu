@@ -18,14 +18,14 @@ use embassy_rp::{
     spi::{Async, Config as SpiConfig, Spi},
 };
 use lcd_async::{
-    Builder, Display, TestImage, interface,
+    Builder, Display as LcdDisplay, TestImage, interface,
     models::ILI9342CRgb565,
     options::{ColorInversion, Orientation, Rotation},
     raw_framebuf::RawFrameBuf,
 };
 use static_cell::StaticCell;
 
-use crate::TftResources;
+use crate::DisplayResources;
 
 macro_rules! box_array {
     ($val:expr ; $len:expr) => {{
@@ -51,9 +51,17 @@ type SpiInterface<'spi> = interface::SpiInterface<
     ExclusiveDevice<Spi<'spi, SPI0, Async>, Output<'spi>, Delay>,
     Output<'spi>,
 >;
-type SpiDisplay<'spi> = Display<SpiInterface<'spi>, ILI9342CRgb565, Output<'spi>>;
 
-pub struct Tft<'spi> {
+type SpiDisplay<'spi> = LcdDisplay<SpiInterface<'spi>, ILI9342CRgb565, Output<'spi>>;
+
+type DisplayError = interface::SpiError<
+    embedded_hal_bus::spi::DeviceError<embassy_rp::spi::Error, Infallible>,
+    Infallible,
+>;
+
+type DisplayBuffer<'a> = RawFrameBuf<Rgb565, &'a mut [u8]>;
+
+pub struct Display<'spi> {
     display: SpiDisplay<'spi>,
     backlight: Output<'spi>,
     framebuffer: &'spi mut Box<[u8; FRAME_SIZE]>,
@@ -61,8 +69,8 @@ pub struct Tft<'spi> {
 
 static FB: StaticCell<Box<[u8; FRAME_SIZE]>> = StaticCell::new();
 
-impl<'spi> Tft<'spi> {
-    pub async fn new(res: TftResources) -> Tft<'spi> {
+impl<'spi> Display<'spi> {
+    pub async fn new(res: DisplayResources) -> Display<'spi> {
         let mut spi_cfg = SpiConfig::default();
         spi_cfg.frequency = 125_000_000;
         spi_cfg.polarity = MODE_0.polarity;
@@ -75,7 +83,7 @@ impl<'spi> Tft<'spi> {
 
         let spi_delay = embassy_time::Delay;
         let spi_device = ExclusiveDevice::new(spi, cs, spi_delay)
-            .expect("failed to create exclusive bus for tft");
+            .expect("failed to create exclusive bus for display");
         let di = interface::SpiInterface::new(spi_device, dc);
 
         let mut delay = embassy_time::Delay;
@@ -96,7 +104,7 @@ impl<'spi> Tft<'spi> {
 
         let framebuffer = FB.init(box_array! [0; FRAME_SIZE]);
 
-        Tft {
+        Display {
             display,
             backlight,
             framebuffer,
@@ -132,19 +140,10 @@ impl<'spi> Tft<'spi> {
 
     pub async fn draw(
         &mut self,
-        func: impl FnOnce(&mut RawFrameBuf<Rgb565, &mut [u8]>) -> Result<(), Infallible>,
-    ) -> Result<
-        (),
-        interface::SpiError<
-            embedded_hal_bus::spi::DeviceError<embassy_rp::spi::Error, Infallible>,
-            Infallible,
-        >,
-    > {
-        let mut raw_fb = RawFrameBuf::<Rgb565, _>::new(
-            self.framebuffer.as_mut_slice(),
-            WIDTH.into(),
-            HEIGHT.into(),
-        );
+        func: impl FnOnce(&mut DisplayBuffer) -> Result<(), Infallible>,
+    ) -> Result<(), DisplayError> {
+        let mut raw_fb =
+            DisplayBuffer::new(self.framebuffer.as_mut_slice(), WIDTH.into(), HEIGHT.into());
         func(&mut raw_fb).expect("infallible drawing op");
         self.display
             .show_raw_data(0, 0, WIDTH, HEIGHT, self.framebuffer.as_slice())

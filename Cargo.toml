@@ -101,3 +101,6 @@ debug = false
 debug-assertions = false
 opt-level = 0
 overflow-checks = false
+
+[lints.rust]
+dead_code = "allow"
