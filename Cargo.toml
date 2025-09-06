@@ -53,14 +53,20 @@ embedded-sdmmc = { version = "0.9.0", default-features = false, features = [
     "defmt-log",
 ] }
 
-rp2040-boot2 = { path = "../../Pico/rp2040-boot2" }
+rp2040-boot2 = { path = "../../Pico/rp2040-boot2", features = ["assemble"] }
 uf2_block = "0.1.0"
 rp2040-flash = "0.6.0"
 embedded-layout = "0.4.2"
 assign-resources = "0.5.0"
 lcd-async = "0.1.1"
 static_cell = "2.1.1"
-embedded-alloc = "0.6.0"
+embedded-alloc = { version = "0.6.0", features = ["llff"] }
+slint = { version = "1.12", default-features = false, features = [
+    "compat-1-2",
+    "unsafe-single-threaded",
+    "libm",
+    "renderer-software",
+] }
 
 # cargo build/run
 [profile.dev]
@@ -104,3 +110,6 @@ overflow-checks = false
 
 [lints.rust]
 dead_code = "allow"
+
+[build-dependencies]
+slint-build = "1.12"

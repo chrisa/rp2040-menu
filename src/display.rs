@@ -10,22 +10,20 @@ use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use embedded_graphics::{Drawable, draw_target::DrawTarget, pixelcolor::Rgb565};
-
 use embassy_rp::{
     gpio::{Level, Output},
     peripherals::SPI0,
     spi::{Async, Config as SpiConfig, Spi},
 };
 use lcd_async::{
-    Builder, Display as LcdDisplay, TestImage, interface,
+    Builder, Display as LcdDisplay, interface,
     models::ILI9342CRgb565,
     options::{ColorInversion, Orientation, Rotation},
-    raw_framebuf::RawFrameBuf,
 };
+use slint::platform::software_renderer::{Rgb565Pixel, TargetPixel};
 use static_cell::StaticCell;
 
-use crate::DisplayResources;
+use crate::{ui::TargetPixelType, DisplayResources};
 
 macro_rules! box_array {
     ($val:expr ; $len:expr) => {{
@@ -42,10 +40,9 @@ macro_rules! box_array {
     }};
 }
 
-const WIDTH: u16 = 320;
-const HEIGHT: u16 = 240;
-const PIXEL_SIZE: usize = 2; // RGB565 = 2 bytes per pixel
-pub const FRAME_SIZE: usize = (WIDTH as usize) * (HEIGHT as usize) * PIXEL_SIZE;
+pub const WIDTH: usize = 320;
+pub const HEIGHT: usize = 240;
+pub const FRAME_SIZE: usize = (WIDTH as usize) * (HEIGHT as usize);
 
 type SpiInterface<'spi> = interface::SpiInterface<
     ExclusiveDevice<Spi<'spi, SPI0, Async>, Output<'spi>, Delay>,
@@ -54,20 +51,18 @@ type SpiInterface<'spi> = interface::SpiInterface<
 
 type SpiDisplay<'spi> = LcdDisplay<SpiInterface<'spi>, ILI9342CRgb565, Output<'spi>>;
 
-type DisplayError = interface::SpiError<
+pub type DisplayError = interface::SpiError<
     embedded_hal_bus::spi::DeviceError<embassy_rp::spi::Error, Infallible>,
     Infallible,
 >;
 
-type DisplayBuffer<'a> = RawFrameBuf<Rgb565, &'a mut [u8]>;
-
 pub struct Display<'spi> {
     display: SpiDisplay<'spi>,
     backlight: Output<'spi>,
-    framebuffer: &'spi mut Box<[u8; FRAME_SIZE]>,
+    framebuffer: &'spi mut Box<[TargetPixelType; FRAME_SIZE]>,
 }
 
-static FB: StaticCell<Box<[u8; FRAME_SIZE]>> = StaticCell::new();
+static FB: StaticCell<Box<[TargetPixelType; FRAME_SIZE]>> = StaticCell::new();
 
 impl<'spi> Display<'spi> {
     pub async fn new(res: DisplayResources) -> Display<'spi> {
@@ -89,7 +84,7 @@ impl<'spi> Display<'spi> {
         let mut delay = embassy_time::Delay;
         let display = Builder::new(ILI9342CRgb565, di)
             .reset_pin(rst)
-            .display_size(WIDTH, HEIGHT)
+            .display_size(WIDTH as u16, HEIGHT as u16)
             .invert_colors(ColorInversion::Normal)
             .orientation(Orientation {
                 rotation: Rotation::Deg90,
@@ -102,7 +97,7 @@ impl<'spi> Display<'spi> {
 
         let backlight = Output::new(res.backlight, Level::Low);
 
-        let framebuffer = FB.init(box_array! [0; FRAME_SIZE]);
+        let framebuffer: &'static mut Box<[Rgb565Pixel; _]> = FB.init(box_array! [Rgb565Pixel::from_rgb(255u8, 0u8, 0u8); FRAME_SIZE]);
 
         Display {
             display,
@@ -119,35 +114,17 @@ impl<'spi> Display<'spi> {
         }
     }
 
-    pub async fn clear(&mut self, color: Rgb565) {
-        self.draw(|raw_fb| {
-            raw_fb.clear(color).unwrap();
-            Ok(())
-        })
-        .await
-        .expect("clear");
-    }
-
-    pub async fn test_image(&mut self) {
-        self.draw(|raw_fb| {
-            let test: TestImage<Rgb565> = TestImage::new();
-            test.draw(raw_fb)?;
-            Ok(())
-        })
-        .await
-        .expect("test image");
-    }
-
     pub async fn draw(
         &mut self,
-        func: impl FnOnce(&mut DisplayBuffer) -> Result<(), Infallible>,
     ) -> Result<(), DisplayError> {
-        let mut raw_fb =
-            DisplayBuffer::new(self.framebuffer.as_mut_slice(), WIDTH.into(), HEIGHT.into());
-        func(&mut raw_fb).expect("infallible drawing op");
+        let ptr = self.framebuffer.as_ptr().cast::<[u8; FRAME_SIZE * 2]>();
         self.display
-            .show_raw_data(0, 0, WIDTH, HEIGHT, self.framebuffer.as_slice())
+            .show_raw_data(0, 0, WIDTH as u16, HEIGHT as u16, unsafe { &*ptr })
             .await?;
         Ok(())
+    }
+
+    pub fn borrow_framebuffer_mut(&mut self) -> &mut [TargetPixelType; FRAME_SIZE] {
+        self.framebuffer
     }
 }
