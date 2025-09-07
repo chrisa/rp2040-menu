@@ -5,7 +5,13 @@ use alloc::boxed::Box;
 use assign_resources::assign_resources;
 use embassy_executor::Spawner;
 use embassy_rp::Peri;
+use embassy_rp::gpio::Input;
+use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::signal::Signal;
+use embassy_time::Duration;
+use embassy_time::Timer;
 use slint::platform::software_renderer::MinimalSoftwareWindow;
 use slint::platform::software_renderer::RepaintBufferType;
 use static_cell::StaticCell;
@@ -20,6 +26,7 @@ use crate::display::Display;
 use crate::display::FRAME_SIZE;
 use crate::sd::SpiSD;
 use crate::ui::PicoBackend;
+use crate::ui::controller::ButtonEvent;
 
 use core::ptr::addr_of_mut;
 
@@ -35,6 +42,7 @@ mod sd;
 mod uf2;
 mod ui;
 
+use crate::ui::controller::Controller;
 use crate::ui::render_loop;
 
 slint::include_modules!();
@@ -68,17 +76,25 @@ assign_resources! {
         cs: PIN_13,
         tx_dma: DMA_CH1,
         rx_dma: DMA_CH2,
-    }
+    },
+    buttons: ButtonResources {
+        up_pin: PIN_2,
+        down_pin: PIN_3,
+        select_pin: PIN_4,
+        refresh_pin: PIN_5,
+    },
 }
-
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
+static HEAP_SIZE: usize = (FRAME_SIZE * 2) + 32768;
+
+static BUTTON_SIGNAL: Signal<ThreadModeRawMutex, ButtonEvent> = Signal::new();
 
 static TFT: StaticCell<Display<'_>> = StaticCell::new();
-// static SD: StaticCell<SpiSD<'_>> = StaticCell::new();
-
-static HEAP_SIZE: usize = (FRAME_SIZE * 2) + 10240;
+static SD: StaticCell<SpiSD<'_>> = StaticCell::new();
+static CONTROLLER: StaticCell<Controller<'_>> = StaticCell::new();
+static UI: StaticCell<FileSelector> = StaticCell::new();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -88,36 +104,95 @@ async fn main(spawner: Spawner) {
         unsafe { HEAP.init(addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE) }
     }
 
-
     let p = embassy_rp::init(Default::default());
     let r = split_resources!(p);
 
-    let window = MinimalSoftwareWindow::new(RepaintBufferType::SwappedBuffers);
-    window.set_size(slint::PhysicalSize::new(display::WIDTH as u32, display::HEIGHT as u32));
+    let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
+    window.set_size(slint::PhysicalSize::new(
+        display::WIDTH as u32,
+        display::HEIGHT as u32,
+    ));
     let backend = Box::new(PicoBackend::new(window.clone()));
     slint::platform::set_platform(backend).expect("backend already initialized");
 
     let display: &mut Display<'_> = TFT.init(display::Display::new(r.display).await);
     display.backlight(true).await;
 
-    spawner.spawn(render_loop(window, display)).unwrap();
+    spawner
+        .spawn(render_loop(window, display))
+        .expect("render_loop");
 
-    let app_window = AppWindow::new().unwrap();
-    app_window.show().expect("unable to show main window");
+    let ui: &'static FileSelector = UI.init(FileSelector::new().expect("fileselector"));
+    ui.show().expect("unable to show main window");
 
-    // run the controller event loop
-    // let mut controller = Controller::new(&app_window, hardware);
-    // controller.run().await;
+    let sd: &'static SpiSD<'_> = match sd::SpiSD::new(r.sd) {
+        Err(e) => panic!("failed to read card: {:?}", e),
+        Ok(sd) => SD.init(sd),
+    };
 
-    // let sd = match sd::SpiSD::new(r.sd) {
-    //     Err(_e) => panic!("failed to read card"),
-    //     Ok(sd) => SD.init(sd),
-    // };
+    let controller = CONTROLLER.init(Controller::new(ui, sd).expect("controller"));
 
-    // let mut fw = flash::FlashWriter::new();
-    // uf2::read_blocks(sd, "ARCADE.UF2", |block| {
-    //     fw.next_block(block);
-    // });
+    spawner.spawn(ui_task(controller)).expect("ui_task");
+    spawner
+        .spawn(button_handler(r.buttons))
+        .expect("button task");
+}
 
-    // boot::boot(XIP_BASE + 0x100);
+#[embassy_executor::task]
+async fn ui_task(controller: &'static Controller<'static>) {
+    // Initial file load
+    controller.refresh_files().await;
+
+    loop {
+        // Wait for button event
+        let button_event = BUTTON_SIGNAL.wait().await;
+
+        match button_event {
+            ButtonEvent::Refresh => {
+                controller.refresh_files().await;
+            }
+            ButtonEvent::Select => {
+                controller.handle_button(button_event);
+            }
+            _ => {
+                controller.handle_button(button_event);
+            }
+        }
+
+        Timer::after(Duration::from_millis(10)).await;
+    }
+}
+
+// Button handler task
+#[embassy_executor::task]
+async fn button_handler(r: ButtonResources) {
+    let up_button = Input::new(r.up_pin, Pull::Up);
+    let down_button = Input::new(r.down_pin, Pull::Up);
+    let select_button = Input::new(r.select_pin, Pull::Up);
+    let refresh_button = Input::new(r.refresh_pin, Pull::Up);
+
+    loop {
+        // Check each button (active low with pull-up)
+        if up_button.is_low() {
+            BUTTON_SIGNAL.signal(ButtonEvent::Up);
+            Timer::after(Duration::from_millis(200)).await; // Debounce
+        }
+
+        if down_button.is_low() {
+            BUTTON_SIGNAL.signal(ButtonEvent::Down);
+            Timer::after(Duration::from_millis(200)).await;
+        }
+
+        if select_button.is_low() {
+            BUTTON_SIGNAL.signal(ButtonEvent::Select);
+            Timer::after(Duration::from_millis(200)).await;
+        }
+
+        if refresh_button.is_low() {
+            BUTTON_SIGNAL.signal(ButtonEvent::Refresh);
+            Timer::after(Duration::from_millis(200)).await;
+        }
+
+        Timer::after(Duration::from_millis(50)).await;
+    }
 }

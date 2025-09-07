@@ -1,9 +1,12 @@
+use alloc::vec;
+use alloc::{string::String, vec::Vec};
 use defmt::*;
 use embassy_time::Delay;
 use embedded_hal_02::spi::MODE_0;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_sdmmc::{
-    DirEntry, Error, File, SdCard, SdCardError, TimeSource, Timestamp, VolumeIdx, VolumeManager,
+    DirEntry, Error, File, LfnBuffer, SdCard, SdCardError, TimeSource, Timestamp, VolumeIdx,
+    VolumeManager,
 };
 
 use embassy_rp::{
@@ -67,19 +70,38 @@ impl<'spi> SpiSD<'spi> {
         Ok(SpiSD { volume_manager })
     }
 
+    pub fn list_files(&self) -> Vec<String> {
+        let mut files = vec![];
+        self.iterate_root_dir(|entry, lfn| {
+            if let Some(name) = lfn {
+                files.push(String::from(name));
+            } else {
+                let mut str =
+                    String::from_utf8(entry.name.base_name().to_vec()).expect("convert utf8");
+                str.push('.');
+                str.push_str(
+                    core::str::from_utf8(entry.name.extension()).expect("convert extension utf8"),
+                );
+                files.push(str);
+            }
+        })
+        .expect("iterate root dir");
+        files
+    }
+
     pub fn iterate_root_dir(
         &self,
-        mut func: impl FnMut(&DirEntry),
+        mut func: impl FnMut(&DirEntry, Option<&str>),
     ) -> Result<(), Error<SdCardError>> {
         let volume0 = self.volume_manager.open_volume(VolumeIdx(0))?;
         info!("Volume 0: {:?}", volume0);
         let root_dir = volume0.open_root_dir()?;
-        root_dir
-            .iterate_dir(|entry: &DirEntry| {
-                info!("Entry: {}", defmt::Display2Format(&entry.name));
-                func(entry);
-            })
-            .unwrap();
+        let mut binding = [0u8; 256];
+        let mut lfn_buffer = LfnBuffer::new(&mut binding);
+        root_dir.iterate_dir_lfn(&mut lfn_buffer, |entry: &DirEntry, lfn: Option<&str>| {
+            info!("Entry: {} {}", defmt::Display2Format(&entry.name), lfn);
+            func(entry, lfn);
+        })?;
         Ok(())
     }
 

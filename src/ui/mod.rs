@@ -1,20 +1,18 @@
-// mod backend;
-// mod renderer;
-
 use alloc::rc::Rc;
 use embassy_time::{Instant, Timer};
 use slint::{
-    platform::{
-        software_renderer::{self, MinimalSoftwareWindow},
-        Platform, WindowAdapter,
-    },
     PlatformError,
+    platform::{
+        Platform, WindowAdapter,
+        software_renderer::{self, MinimalSoftwareWindow},
+    },
 };
 
 use crate::display::Display;
 
 pub type TargetPixelType = software_renderer::Rgb565Pixel;
 
+pub mod controller;
 
 #[embassy_executor::task()]
 pub async fn render_loop(
@@ -30,13 +28,12 @@ pub async fn render_loop(
         });
 
         if is_dirty {
-            display.draw().await.unwrap();
+            display.draw().await.expect("drawing to display");
         } else {
             Timer::after_millis(10).await
         }
     }
 }
-
 
 pub struct PicoBackend {
     window: Rc<MinimalSoftwareWindow>,

@@ -23,7 +23,7 @@ use lcd_async::{
 use slint::platform::software_renderer::{Rgb565Pixel, TargetPixel};
 use static_cell::StaticCell;
 
-use crate::{ui::TargetPixelType, DisplayResources};
+use crate::{DisplayResources, ui::TargetPixelType};
 
 macro_rules! box_array {
     ($val:expr ; $len:expr) => {{
@@ -42,7 +42,7 @@ macro_rules! box_array {
 
 pub const WIDTH: usize = 320;
 pub const HEIGHT: usize = 240;
-pub const FRAME_SIZE: usize = (WIDTH as usize) * (HEIGHT as usize);
+pub const FRAME_SIZE: usize = WIDTH * HEIGHT;
 
 type SpiInterface<'spi> = interface::SpiInterface<
     ExclusiveDevice<Spi<'spi, SPI0, Async>, Output<'spi>, Delay>,
@@ -93,11 +93,12 @@ impl<'spi> Display<'spi> {
             .display_offset(0, 0)
             .init(&mut delay)
             .await
-            .unwrap();
+            .expect("creating display");
 
         let backlight = Output::new(res.backlight, Level::Low);
 
-        let framebuffer: &'static mut Box<[Rgb565Pixel; _]> = FB.init(box_array! [Rgb565Pixel::from_rgb(255u8, 0u8, 0u8); FRAME_SIZE]);
+        let framebuffer: &'static mut Box<[Rgb565Pixel; _]> =
+            FB.init(box_array! [Rgb565Pixel::from_rgb(255u8, 0u8, 0u8); FRAME_SIZE]);
 
         Display {
             display,
@@ -114,9 +115,7 @@ impl<'spi> Display<'spi> {
         }
     }
 
-    pub async fn draw(
-        &mut self,
-    ) -> Result<(), DisplayError> {
+    pub async fn draw(&mut self) -> Result<(), DisplayError> {
         let ptr = self.framebuffer.as_ptr().cast::<[u8; FRAME_SIZE * 2]>();
         self.display
             .show_raw_data(0, 0, WIDTH as u16, HEIGHT as u16, unsafe { &*ptr })

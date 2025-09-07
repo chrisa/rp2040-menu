@@ -76,7 +76,7 @@ debug-assertions = true
 incremental = false
 opt-level = 3
 overflow-checks = true
-panic = "abort"
+panic = "unwind"
 
 # Optimize all dependencies
 [profile.dev.package."*"]
