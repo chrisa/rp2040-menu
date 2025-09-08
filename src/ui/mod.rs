@@ -1,9 +1,7 @@
 use alloc::rc::Rc;
-use embassy_time::{Instant, Timer};
+use embassy_time::Timer;
 use slint::{
-    PlatformError,
     platform::{
-        Platform, WindowAdapter,
         software_renderer::{self, MinimalSoftwareWindow},
     },
 };
@@ -13,6 +11,7 @@ use crate::display::Display;
 pub type TargetPixelType = software_renderer::Rgb565Pixel;
 
 pub mod controller;
+pub mod backend;
 
 #[embassy_executor::task()]
 pub async fn render_loop(
@@ -32,26 +31,5 @@ pub async fn render_loop(
         } else {
             Timer::after_millis(10).await
         }
-    }
-}
-
-pub struct PicoBackend {
-    window: Rc<MinimalSoftwareWindow>,
-}
-
-impl PicoBackend {
-    pub fn new(window: Rc<MinimalSoftwareWindow>) -> Self {
-        Self { window }
-    }
-}
-
-impl Platform for PicoBackend {
-    fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, PlatformError> {
-        let window = self.window.clone();
-        Ok(window)
-    }
-
-    fn duration_since_start(&self) -> core::time::Duration {
-        Instant::now().duration_since(Instant::from_secs(0)).into()
     }
 }

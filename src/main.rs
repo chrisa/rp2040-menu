@@ -25,7 +25,7 @@ use rp2040_boot2::BOOT_LOADER_W25Q080_TOP64K;
 use crate::display::Display;
 use crate::display::FRAME_SIZE;
 use crate::sd::SpiSD;
-use crate::ui::PicoBackend;
+use crate::ui::backend::PicoBackend;
 use crate::ui::controller::ButtonEvent;
 
 use core::ptr::addr_of_mut;
