@@ -116,6 +116,8 @@ impl<'spi> Controller<'spi> {
             panic!("no selected filename?");
         }
 
+        cortex_m::interrupt::disable();
+
         let mut fw = FlashWriter::new();
         read_blocks(self.sd, &filename, |block| {
             fw.next_block(block);
