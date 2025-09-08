@@ -1,4 +1,5 @@
 use alloc::vec;
+use alloc::format;
 use alloc::{string::String, vec::Vec};
 use defmt::*;
 use embassy_time::Delay;
@@ -76,13 +77,7 @@ impl<'spi> SpiSD<'spi> {
             if let Some(name) = lfn {
                 files.push(String::from(name));
             } else {
-                let mut str =
-                    String::from_utf8(entry.name.base_name().to_vec()).expect("convert utf8");
-                str.push('.');
-                str.push_str(
-                    core::str::from_utf8(entry.name.extension()).expect("convert extension utf8"),
-                );
-                files.push(str);
+                files.push(format!("{}", entry.name));
             }
         })
         .expect("iterate root dir");
