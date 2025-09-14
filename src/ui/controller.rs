@@ -1,8 +1,6 @@
 use alloc::rc::Rc;
-use alloc::vec::Vec;
 use slint::ComponentHandle;
 use slint::Model;
-use slint::SharedString;
 use slint::format;
 
 use crate::XIP_BASE;
@@ -88,11 +86,7 @@ impl<'spi> Controller<'spi> {
 
     pub async fn refresh_files(&self) {
         self.ui.set_status_message("Loading files...".into());
-
-        let files = self.sd.list_files();
-        let slint_files: Vec<SharedString> = files.into_iter().map(|s| s.into()).collect();
-
-        let model = Rc::new(slint::VecModel::from(slint_files));
+        let model = Rc::new(self.sd.list_files());
         self.ui.set_file_list(model.into());
         self.ui.set_selected_index(0);
         self.ui.set_status_message("Files loaded".into());

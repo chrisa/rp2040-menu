@@ -1,6 +1,3 @@
-use alloc::vec;
-use alloc::format;
-use alloc::{string::String, vec::Vec};
 use defmt::*;
 use embassy_time::Delay;
 use embedded_hal_02::spi::MODE_0;
@@ -15,6 +12,7 @@ use embassy_rp::{
     peripherals::SPI1,
     spi::{Async, Config as SpiConfig, Spi},
 };
+use slint::{SharedString, ToSharedString, VecModel};
 
 use crate::SdResources;
 
@@ -71,13 +69,13 @@ impl<'spi> SpiSD<'spi> {
         Ok(SpiSD { volume_manager })
     }
 
-    pub fn list_files(&self) -> Vec<String> {
-        let mut files = vec![];
+    pub fn list_files(&self) -> VecModel<SharedString> {
+        let files = VecModel::<SharedString>::default();
         self.iterate_root_dir(|entry, lfn| {
             if let Some(name) = lfn {
-                files.push(String::from(name));
+                files.push(SharedString::from(name));
             } else {
-                files.push(format!("{}", entry.name));
+                files.push(entry.name.to_shared_string());
             }
         })
         .expect("iterate root dir");

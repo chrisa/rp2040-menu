@@ -1,17 +1,13 @@
 use alloc::rc::Rc;
 use embassy_time::Timer;
-use slint::{
-    platform::{
-        software_renderer::{self, MinimalSoftwareWindow},
-    },
-};
+use slint::platform::software_renderer::{self, MinimalSoftwareWindow};
 
 use crate::display::Display;
 
 pub type TargetPixelType = software_renderer::Rgb565Pixel;
 
-pub mod controller;
 pub mod backend;
+pub mod controller;
 
 #[embassy_executor::task()]
 pub async fn render_loop(

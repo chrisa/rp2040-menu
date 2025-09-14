@@ -67,6 +67,7 @@ slint = { version = "1.12", default-features = false, features = [
     "libm",
     "renderer-software",
 ] }
+heapless = "0.9.1"
 
 # cargo build/run
 [profile.dev]

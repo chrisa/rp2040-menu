@@ -2,10 +2,7 @@ use alloc::rc::Rc;
 use embassy_time::Instant;
 use slint::{
     PlatformError,
-    platform::{
-        Platform, WindowAdapter,
-        software_renderer::MinimalSoftwareWindow,
-    },
+    platform::{Platform, WindowAdapter, software_renderer::MinimalSoftwareWindow},
 };
 
 pub struct PicoBackend {
